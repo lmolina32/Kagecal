@@ -9,35 +9,27 @@
 - Repository: [kagecal](https://github.com/samneisewanderND/kagecal)
 
 ### Description
-TODO
-decentralised calendar application
+Kage Bunshin no Calendar (Shadow Clone Calendar) is a decentralised calendar application where several peers can manipulate a single shared calendar timeline.
+
+Users can add, remove, update, and view the shared calendar timeline.
 
 ## Goals & Structure
-TODO
-- questions:
-    - should we allow overlapping events?
-    - should we enforce access control?
-    - are events replicated across machines (consistency problem) or are events distributed across machines (responsibility problem)
 
-- calendar with operations:
-    - add event: 
-    - remove own event: 
-    - modify own event
-    - query (current event, past event, future events)
+The *key disributed systems problem* in this system would be garunteeing consistency of the calendar data across all peers. For example, if a peer adds an event to the calendar, one challenge is figuring out how to disseminate that change to the rest of the peers. Things get more interesting when considering updates; if a two peers update the same event, and the updates arrive at a third and fourth peer in different orders, how can we reconcile the calendar state between all peers? We plan to approach these problems by using patterns like logical clocks and election algorithms to ensure consistent state.
 
-- optional features:
-    - search / filter
-    - notifications
+We would like the client application to be able to view the calendar and search events in the calendar, but we do not plan to implement fancy features like access control and notifications, as these are not really related to the distributed systems problem.
 
 ## Languages & Resources
-TODO
-- python, local machines and student machines
-- catalog.cse.nd.edu
+We plan to program the peer in `Python` and to use the `catalog.cse.nd.edu` nameserver to help connect new peers to the system. We plan to test and benchmark our system using our local machines and the student machines (no CRC or cloud compute).
 
 ## Evaluation
-TODO: elaborate on this stuff
-- correctness
-- persistance
-- throughput
-- latency
-- notional graphs (can just upload images to yld.me and insert via markdown)
+We plan to write correctness and persistence tests. We also plan to write some performance benchmarking tests to evauluate metrics like `throughput` (how many events we can process per unit time) and `latency` (how long it takes a single update to propogate to the whole system).
+
+Here are some notional graphs for how we think our performance metrics will trend with respect to system size or load.
+
+![Figure 1. Latency versus system size](https://yld.me/raw/mWcv)
+Figure 1. Latency versus system size
+
+![Figure 2. Throughput versus system size](https://yld.me/raw/qPYR
+)
+Figure 2. Throughput versus system size
