@@ -5,9 +5,11 @@ import time
 
 
 class Calendar:
+
     def __init__(self):
 
-        # We need some data structure to hold events... it is okay if events overlap... so it should be okay to have
+        # Used to generate unique identifiers for each event.
+        self.identifier_counter = 0
 
         events = {}
         pass
@@ -22,6 +24,14 @@ class Calendar:
         repeats: Optional[Repeats] = None,
     ) -> None:
         """Creates an Event, assigns it a unique identifier, and adds it to the calendar. If the event metadata is malformed, does nothing."""
+
+        # TODO: How will we genearate a unique identifier for each event? Just use a monotonic counter.
+        identifier = self.identifier_counter
+        self.identifier_counter += 1
+
+        event = Event(name, start, end, description, location, repeats)
+        events[identifier] = event
+
         pass
 
     def delete(self, id: str) -> None:
@@ -31,6 +41,15 @@ class Calendar:
     def modify() -> None:
         """Modifies an event with a given identifier. If the event doesn't exist, or if the event metadata is malformed, does nothing."""
         pass
+
+    def _validate_event(event: Event) -> bool:
+        """Checks if an event is consistent with the following invariants:
+        - Start time is less than or equal to end time
+        - name is bounded at 1KiB
+        - description is bounded at 8KiB
+        - location is bounded at 1KiB
+        - Repeats.repeats_starting is less than or equal to Repeats.repeats_until
+        """
 
 
 @dataclass
