@@ -32,6 +32,19 @@ class Calendar:
         """Modifies an event with a given identifier. If the event doesn't exist, or if the event metadata is malformed, does nothing."""
         pass
 
+    def get_event():
+        """Retrives an event with a given identifier from the calendar, regardless of whether or not the event exists"""
+        pass 
+    
+    def list_events():
+        """Retrives all events in the calendar"""
+        pass
+
+    def search_events():
+        """Searches calendar for events that match description"""
+        pass
+
+
 
 @dataclass
 class Event:
