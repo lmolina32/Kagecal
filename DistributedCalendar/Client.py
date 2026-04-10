@@ -198,15 +198,14 @@ class Client:
         status = payload.get("status", "")
         if status == "success":
             method = payload.get("method", "")
-            data = payload.get("data", "")
 
             match method:
                 case "create":
-                    pass
+                    return payload.get("ident")
                 case "delete":
-                    pass
+                    return True
                 case "modify":
-                    pass
+                    return payload.get("ident")
                 case "get_event":
                     pass
                 case "list_events":

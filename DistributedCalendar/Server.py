@@ -269,7 +269,7 @@ class Server:
                     repeats = request.get("repeats")
                     ident = self.persistence.create(name, start, end, description, location, repeats) 
                     if ident is None:
-                        return {"method": "create", "status", "failure"}
+                        return {"method": "create", "status": "failure"}
                     return {"method": "create", "status": "success", "ident": ident}
                 case "delete":
                     ident = request.get("ident")
