@@ -72,7 +72,7 @@ class Event:
 class Calendar:
 
     def __init__(self):
-        events: dict[int, Event] = {}
+        self.events: dict[int, Event] = {}
 
     def create(
         self,
@@ -97,7 +97,7 @@ class Calendar:
 
     def delete(self, ident: int) -> None:
         """Deletes an event with a given identifier from the calendar, regardless of whether or not the event exists."""
-        if id in self.events:
+        if ident in self.events:
             del self.events[ident]
 
     def modify(
@@ -111,7 +111,7 @@ class Calendar:
         repeats: Optional[Repeats] = None,
     ) -> Optional[int]:
         """Modifies an event with a given identifier. If the event doesn't exist, or if the event metadata is malformed, does nothing. Returns the new identifier for the event."""
-        if id not in self.events:
+        if ident not in self.events:
             return None
         new_ident = self.create(name, stard, end, description, location, repeats)
         if new_ident is None:
@@ -130,8 +130,8 @@ class Calendar:
         if (
             event.start > event.end
             or len(event.name) > (1 << 10)
-            or len(event.description) > (1 << 13)
-            or len(event.location) > (1 << 10)
+            or (event.description and len(event.description) > (1 << 13))
+            or (event.location and len(event.location) > (1 << 10))
             or (
                 events.repeats
                 and event.repeats.repeats_starting > event.repeats.repeats_until

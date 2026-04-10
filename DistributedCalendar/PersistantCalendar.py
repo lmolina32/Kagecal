@@ -37,7 +37,7 @@ class PersistantHashTable:
         self.txns_logged = 0
         self.calendar: Calendar = self._restore()
         self._clean_stale_files()
-        self.txn_log_file = open(self.TXN_LOG_PATH, "a")
+        self.txn_log_file = open(self.TXN_LOG_PATH, "ab")
 
     def __del__(self):
         self.txn_log_file.close()
@@ -99,7 +99,7 @@ class PersistantHashTable:
         # Rebuild calendar from checkpoint, or create a new one. If a checkpoint exists, we are certain that it is complete.
         calendar = Calendar()
         if os.path.isfile(self.CKPT_PATH):
-            with open(self.CKPT_PATH, "r") as file:
+            with open(self.CKPT_PATH, "rb") as file:
                 calendar.events = pickle.load(file)
 
         # Case: Server crashed while checkpointing, leaving a stale "new" checkpoint file. Remove it, and try to checkpoint again.
@@ -166,8 +166,4 @@ class PersistantHashTable:
         # 3. Truncate the transaction log, reset transaction counter.
         self.txn_log_file.truncate(0)
         self.txns_logged = 0
-
-        # 4. Clean stale files.
-        self._clean_stale_files()
-
         self.logger.info("[Checkpoint] done.")
