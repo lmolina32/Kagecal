@@ -82,11 +82,15 @@ class PersistantHashTable:
         location: Optional[str] = None,
         repeats: Optional[Repeats] = None,
     ) -> Optional[int]:
-        # 1. Delete event
-        self.calendar.delete(ident)
+        # 1. Modify event
+        event = Event(name, start, end, description, location, repeats)
+        ident = self.calendar.modify(ident, event)
 
-        # 2. Log the transaction
-        txn = Transaction("delete", ident, None)
+        if ident is None:
+            return None
+
+        # 3. Log the transaction
+        txn = Transaction("modify", ident, None)
         self._log(txn)
 
     def _restore(self) -> Calendar:
