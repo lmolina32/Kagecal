@@ -132,7 +132,7 @@ class Calendar:
             or (event.description and len(event.description) > (1 << 13))
             or (event.location and len(event.location) > (1 << 10))
             or (
-                events.repeats
+                event.repeats
                 and event.repeats.repeats_starting > event.repeats.repeats_until
             )
         ):
