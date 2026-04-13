@@ -92,7 +92,6 @@ class Calendar:
 
         identifier = hash(event)
         self.events[identifier] = event
-
         return identifier
 
     def delete(self, ident: int) -> None:
@@ -113,13 +112,13 @@ class Calendar:
         """Modifies an event with a given identifier. If the event doesn't exist, or if the event metadata is malformed, does nothing. Returns the new identifier for the event."""
         if ident not in self.events:
             return None
-        new_ident = self.create(name, stard, end, description, location, repeats)
+        new_ident = self.create(name, start, end, description, location, repeats)
         if new_ident is None:
             return None
         del self.events[ident]
         return new_ident
 
-    def _validate_event(event: Event) -> bool:
+    def _validate_event(self,event: Event) -> bool:
         """Checks if an event is consistent with the following invariants:
         - Start time is less than or equal to end time
         - name is bounded at 1KiB

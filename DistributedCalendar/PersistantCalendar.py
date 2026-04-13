@@ -36,7 +36,6 @@ class PersistantHashTable:
         # Initialize actual hash table. It is important that these happen in this order.
         self.txns_logged = 0
         self.calendar: Calendar = self._restore()
-        self._clean_stale_files()
         self.txn_log_file = open(self.TXN_LOG_PATH, "ab")
 
     def __del__(self):
@@ -53,7 +52,7 @@ class PersistantHashTable:
     ) -> Optional[int]:
         # 1. Create new event
         event = Event(name, start, end, description, location, repeats)
-        ident = self.calendar.create(event)
+        ident = self.calendar.create(name, start, end, description, location, repeats)
 
         if ident is None:
             return None
@@ -84,7 +83,7 @@ class PersistantHashTable:
     ) -> Optional[int]:
         # 1. Modify event
         event = Event(name, start, end, description, location, repeats)
-        ident = self.calendar.modify(ident, event)
+        ident = self.calendar.modify(ident, name, start, end, description, location, repeats)
 
         if ident is None:
             return None
@@ -109,7 +108,7 @@ class PersistantHashTable:
 
         # Replay transaction log, skipping the trailing entry if it is malformed.
         if os.path.isfile(self.TXN_LOG_PATH):
-            with open(self.TXN_LOG_PATH, "r") as txn_log:
+            with open(self.TXN_LOG_PATH, "rb") as txn_log:
 
                 for txn_pickle in txn_log.readlines():
                     try:
@@ -131,7 +130,7 @@ class PersistantHashTable:
                         case "modify":
                             calendar.modify(ident, event)
 
-        return Table
+        return calendar 
 
     def _log(self, txn: Transaction) -> None:
         """Append a transaction to the log. If the log length exceeds CKPT_THRESHOLD, commit a checkpoint."""
@@ -153,7 +152,7 @@ class PersistantHashTable:
         self.logger.info("[Checkpoint] Checkpointing...")
 
         # 1. Write Table to new checkpoint file
-        with open(self.NEW_CKPT_PATH, "w") as new_ckpt_file:
+        with open(self.NEW_CKPT_PATH, "wb") as new_ckpt_file:
             pickle.dump(self.calendar.events, new_ckpt_file)
 
             # Force changes to disk

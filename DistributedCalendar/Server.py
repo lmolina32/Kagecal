@@ -285,7 +285,7 @@ class Server:
                     repeats = request.get("repeats")
                     ident = self.persistence.modify(ident, name, start, end, description, location, repeats) 
                     if ident is None:
-                        return {"method": "modify", "status", "failure"}
+                        return {"method": "modify", "status": "failure"}
                     return {"method": "modify", "status": "success", "ident": ident}
 
                 case "get_event":

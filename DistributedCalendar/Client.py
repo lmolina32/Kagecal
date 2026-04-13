@@ -7,6 +7,7 @@ import json
 import socket 
 import pickle 
 import logging 
+from datetime import datetime, timezone, timedelta
 from urllib.request import urlopen 
 from typing import Self, Optional, Tuple
 from Calendar import Repeats
@@ -89,6 +90,7 @@ class Client:
         repeats: Optional[Repeats] = None,
     ) -> Optional[int]:
         send_msg: dict[str, str | int | Repeats |  None] = {"method": "create", "name": name, "start": start, "end": end, "description": description, "location": location, "repeats": repeats}
+        self.log.info(send_msg)
         msg = self._serialize_data(send_msg)
         return self._connect_to_server(msg)
     
@@ -234,9 +236,9 @@ def main() -> None:
     host =  sys.argv[2]
     port = int(sys.argv[3])
     with Client(client_name=client_name, host=host, port=port) as client:
-        print('wait')
-        time.sleep(5)
-        print('done')
+        now_utc = int(datetime.now(timezone.utc).timestamp())
+        one_hour_later = int((datetime.now(timezone.utc)+ timedelta(hours=1)).timestamp())
+        id =client.create("progress report", start=now_utc, end=one_hour_later, location="", description="")
 
 if __name__ == "__main__":
     main()
