@@ -124,11 +124,11 @@ class PersistantHashTable:
 
                     match txn.method:
                         case "create":
-                            calendar.create(event)
+                            calendar.create(**txn.event.__dict__)
                         case "delete":
-                            calendar.delete(ident)
+                            calendar.delete(txn.ident)
                         case "modify":
-                            calendar.modify(ident, event)
+                            calendar.modify(ident=txn.ident, **txn.event.__dict__)
 
         return calendar 
 
