@@ -126,7 +126,6 @@ class Calendar:
         - location is bounded at 1KiB
         - Repeats.repeats_starting is less than or equal to Repeats.repeats_until
         """
-        return True
         if (
             event.start > event.end
             or len(event.name) > (1 << 10)
