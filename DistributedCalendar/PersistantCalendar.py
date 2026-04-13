@@ -3,8 +3,6 @@ from Calendar import Calendar, Repeats, Event, Day
 from typing import NamedTuple, Optional
 import pickle
 import os
-import hashlib
-import json
 import logging
 
 
@@ -22,7 +20,7 @@ class PersistantHashTable:
     TXN_LOG_PATH = "calendar.txns"
     CKPT_THRESHOLD = 100
 
-    def __init__(self, log_level: int = logging.INFO):
+    def __init__(self, log_level: int = logging.INFO) -> None:
         # Logging
         log_format = "[%(levelname)1.1s %(asctime)s %(module)s:%(lineno)d] %(message)s"
         logging.basicConfig(
@@ -38,7 +36,7 @@ class PersistantHashTable:
         self.calendar: Calendar = self._restore()
         self.txn_log_file = open(self.TXN_LOG_PATH, "ab")
 
-    def __del__(self):
+    def __del__(self) -> None:
         self.txn_log_file.close()
 
     def create(
@@ -83,14 +81,15 @@ class PersistantHashTable:
     ) -> Optional[int]:
         # 1. Modify event
         event = Event(name, start, end, description, location, repeats)
-        ident = self.calendar.modify(ident, name, start, end, description, location, repeats)
+        new_ident = self.calendar.modify(ident, name, start, end, description, location, repeats)
 
-        if ident is None:
+        if new_ident is None:
             return None
 
-        # 3. Log the transaction
-        txn = Transaction("modify", ident, None)
+        # 2. Log the transaction
+        txn = Transaction("modify", ident, event)
         self._log(txn)
+        return new_ident
 
     def _restore(self) -> Calendar:
         """Restore the in-memory calendar and recover from server failure by scanning the checkpoint and log, and retrying a checkpoint if necessary. Updates the instance transaction counter to reflect replayed transactions."""

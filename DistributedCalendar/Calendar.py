@@ -20,8 +20,8 @@ class Repeats:
     repeats_starting: int
     repeats_until: int
 
-    def __eq__(self, other):
-        if not isinstance(other, Event):
+    def __eq__(self, other) -> bool:
+        if not isinstance(other, Repeats):
             return NotImplemented
         return (
             self.repeats_every == other.repeats_every
@@ -29,7 +29,7 @@ class Repeats:
             and self.repeats_until == other.repeats_until
         )
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         # Hash based on the same attributes used for equality
         return hash((self.repeats_every, self.repeats_starting, self.repeats_until))
 
@@ -43,7 +43,7 @@ class Event:
     location: Optional[str] = None
     repeats: Optional[Repeats] = None
 
-    def __eq__(self, other):
+    def __eq__(self, other) -> bool:
         if not isinstance(other, Event):
             return NotImplemented
         return (
@@ -55,7 +55,7 @@ class Event:
             and self.repeats == other.repeats
         )
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         # Hash based on the same attributes used for equality
         return hash(
             (
@@ -71,7 +71,7 @@ class Event:
 
 class Calendar:
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.events: dict[int, Event] = {}
 
     def create(
