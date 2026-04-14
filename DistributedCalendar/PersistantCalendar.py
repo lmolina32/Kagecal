@@ -158,7 +158,7 @@ class PersistantHashTable:
 
         self.txns_logged += 1
 
-        if self.txns_logged > self.CKPT_THRESHOLD:
+        if self.txns_logged >= self.CKPT_THRESHOLD:
             self._checkpoint()
 
     def _checkpoint(self) -> None:

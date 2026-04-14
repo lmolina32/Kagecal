@@ -49,7 +49,29 @@ def test_init_txns_logged_starts_at_zero(mocker):
     assert pht.txns_logged == 0
 
 
-def test_persistent_restore_checkpoint_logic(calendar, tmp_path, mocker) -> None:
+def test_peresistent_read_transaction(calendar, tmp_path) -> None:
+    txn_log = tmp_path / "calendar.txns"
+    txn_log.touch
+    txns = []
+    with txn_log.open("wb") as f:
+        for i in range(10):
+            event = create_event(start=i)
+            txn = Transaction("create", hash(event), event)
+            txns.append(txn)
+            txn = pickle.dumps(txn, protocol=pickle.HIGHEST_PROTOCOL)
+            header = struct.pack("!I", len(txn))
+            f.write(header + txn)
+
+    with txn_log.open("rb") as f:
+        i = 0
+        for txn in calendar._read_transactions(f):
+            assert txn.method == txns[i].method
+            assert txn.identifier == txns[i].identifier
+            assert txn.event == txns[i].event
+            i += 1
+
+
+def test_persistent_restore_checkpoint_logic(calendar, tmp_path) -> None:
     ckpt = tmp_path / "calendar.ckpt"
     ckpt.touch()
 
@@ -164,9 +186,57 @@ def test_persistent_restore_transaction_CDM_logic(calendar, tmp_path):
     txn_log.unlink()
 
 
-def test_persistent_log(calendar, tmp_path) -> None:
-    pass
+def test_persistent_log(calendar, tmp_path, mocker) -> None:
+    txn_log = tmp_path / "calendar.txns"
+    event = create_event()
+    txn = Transaction("create", hash(event), event)
+    calendar._log(txn)
+
+    pickled_txn = pickle.dumps(txn, protocol=pickle.HIGHEST_PROTOCOL)
+    header = struct.pack("!I", len(pickled_txn))
+    txn_bytes = header + pickled_txn
+    assert calendar.txns_logged == 1
+    assert txn_log.read_bytes() == txn_bytes
+
+    # assert compaction
+    calendar.txns_logged = calendar.CKPT_THRESHOLD - 1
+    m = mocker.patch.object(
+        PersistantHashTable, "_checkpoint", return_value=MagicMock()
+    )
+    calendar._log(txn)
+    m.assert_called_once()
 
 
 def test_persistent_checkpoint(calendar, tmp_path) -> None:
-    pass
+    txn_log = tmp_path / "calendar.txns"
+    with txn_log.open("wb") as f:
+        for i in range(10):
+            event = create_event(start=i)
+            txn = pickle.dumps(Transaction("create", hash(event), event))
+            header = struct.pack("!I", len(txn))
+            f.write(header + txn)
+
+    assert txn_log.read_bytes() is not None
+
+    c = Calendar()
+    for i in range(10):
+        c.create(**create_event(start=i).__dict__)
+
+    calendar.calendar = c
+    new_ckpt = tmp_path / "calendar.new.ckpt"
+    ckpt = tmp_path / "calendar.ckpt"
+    ckpt.touch()
+    ckpt.write_bytes(b"data...")
+
+    calendar._checkpoint()
+    assert ckpt.read_bytes() != b"data..."
+    assert txn_log.read_bytes() == b""
+    assert new_ckpt.exists() is False
+    assert calendar.txns_logged == 0
+
+    with ckpt.open("rb") as f:
+        new_c = pickle.load(f)
+        for id, event in new_c.items():
+            assert id in c.events
+            old_event = c.events[id]
+            assert old_event == event
