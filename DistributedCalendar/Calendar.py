@@ -127,13 +127,13 @@ class Calendar:
         - Repeats.repeats_starting is less than or equal to Repeats.repeats_until
         """
         if (
-            event.start > event.end
+            event.start >= event.end
             or len(event.name) > (1 << 10)
             or (event.description and len(event.description) > (1 << 13))
             or (event.location and len(event.location) > (1 << 10))
             or (
                 event.repeats
-                and event.repeats.repeats_starting > event.repeats.repeats_until
+                and event.repeats.repeats_starting >= event.repeats.repeats_until
             )
         ):
             return False
