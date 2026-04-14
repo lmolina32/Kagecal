@@ -1,7 +1,7 @@
-from dataclasses import dataclass
+import time
 from enum import Enum
 from typing import Optional
-import time
+from dataclasses import dataclass
 
 
 class Day(Enum):
@@ -118,7 +118,7 @@ class Calendar:
         del self.events[ident]
         return new_ident
 
-    def _validate_event(self,event: Event) -> bool:
+    def _validate_event(self, event: Event) -> bool:
         """Checks if an event is consistent with the following invariants:
         - Start time is less than or equal to end time
         - name is bounded at 1KiB

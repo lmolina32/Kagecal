@@ -8,8 +8,9 @@ import pickle
 import logging
 import threading
 from typing import Optional, Tuple, List, Dict
-from Calendar import Calendar, Repeats
-from PersistantCalendar import PersistantHashTable
+
+from .Calendar import Calendar, Repeats
+from .PersistantCalendar import PersistantHashTable
 
 
 # TODO: update logging to be from the central invocation not called in every sub module.

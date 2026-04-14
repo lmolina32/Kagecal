@@ -7,7 +7,8 @@ import pickle
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import Self, Optional
-from Calendar import Repeats, Event
+
+from .Calendar import Repeats, Event
 
 logging.basicConfig(
     level=logging.INFO,
