@@ -1,5 +1,4 @@
 from .Calendar import Calendar
-from .PersistantCalendar import PersistantCalendar
+from .PersistantCalendar import PersistantHashTable
 from .Client import Client
 from .Server import Server
-from .Peer import Peer
