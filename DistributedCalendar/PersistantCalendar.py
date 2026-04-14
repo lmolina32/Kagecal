@@ -22,7 +22,7 @@ class PersistantHashTable:
 
     def __init__(self, log_level: int = logging.INFO) -> None:
         # Logging
-        log_format = "[%(levelname)1.1s %(asctime)s %(module)s:%(lineno)d] %(message)s"
+        log_format = "[%(levelname)s %(asctime)s %(module)s:%(lineno)d] %(message)s"
         logging.basicConfig(
             format=log_format,
             datefmt="%Y-%m-%d %H:%M:%S",
@@ -81,7 +81,9 @@ class PersistantHashTable:
     ) -> Optional[int]:
         # 1. Modify event
         event = Event(name, start, end, description, location, repeats)
-        new_ident = self.calendar.modify(ident, name, start, end, description, location, repeats)
+        new_ident = self.calendar.modify(
+            ident, name, start, end, description, location, repeats
+        )
 
         if new_ident is None:
             return None
@@ -125,11 +127,11 @@ class PersistantHashTable:
                         case "create":
                             calendar.create(**txn.event.__dict__)
                         case "delete":
-                            calendar.delete(txn.ident)
+                            calendar.delete(txn.identifier)
                         case "modify":
-                            calendar.modify(ident=txn.ident, **txn.event.__dict__)
+                            calendar.modify(ident=txn.identifier, **txn.event.__dict__)
 
-        return calendar 
+        return calendar
 
     def _log(self, txn: Transaction) -> None:
         """Append a transaction to the log. If the log length exceeds CKPT_THRESHOLD, commit a checkpoint."""
