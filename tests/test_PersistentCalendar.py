@@ -2,6 +2,7 @@
 
 import pytest
 import pickle
+import struct
 from unittest.mock import MagicMock, mock_open, patch
 
 from utils import create_event, create_repeat
@@ -86,7 +87,9 @@ def test_persistent_restore_transaction_creates_logic(calendar, tmp_path) -> Non
         for i in range(10):
             event = create_event(start=i)
             idents.append(hash(event))
-            f.write(pickle.dumps(Transaction("create", hash(event), event)) + b"\n")
+            txn = pickle.dumps(Transaction("create", hash(event), event))
+            header = struct.pack("!I", len(txn))
+            f.write(header + txn)
 
     restored_calendar = calendar._restore()
     assert len(restored_calendar.events) == 10
@@ -106,9 +109,14 @@ def test_persistent_restore_transaction_creates_deletes_logic(
         for i in range(10):
             event = create_event(start=i)
             idents.append(hash(event))
-            f.write(pickle.dumps(Transaction("create", hash(event), event)) + b"\n")
+            txn = pickle.dumps(Transaction("create", hash(event), event))
+            header = struct.pack("!I", len(txn))
+            f.write(header + txn)
+
         for i in range(4):
-            f.write(pickle.dumps(Transaction("delete", idents[i], None)) + b"\n")
+            txn = pickle.dumps(Transaction("delete", idents[i], None))
+            header = struct.pack("!I", len(txn))
+            f.write(header + txn)
 
     restored_calendar = calendar._restore()
     assert len(restored_calendar.events) == 6
@@ -130,13 +138,19 @@ def test_persistent_restore_transaction_CDM_logic(calendar, tmp_path):
         for i in range(10):
             event = create_event(start=i)
             idents.append(hash(event))
-            f.write(pickle.dumps(Transaction("create", hash(event), event)) + b"\n")
+            txn = pickle.dumps(Transaction("create", hash(event), event))
+            header = struct.pack("!I", len(txn))
+            f.write(header + txn)
         for i in range(4):
-            f.write(pickle.dumps(Transaction("delete", idents[i], None)) + b"\n")
+            txn = pickle.dumps(Transaction("delete", idents[i], None))
+            header = struct.pack("!I", len(txn))
+            f.write(header + txn)
         for i in range(4, len(idents)):
             event = create_event(start=10 + i)
             modifies.append(hash(event))
-            f.write(pickle.dumps(Transaction("modify", idents[i], event)) + b"\n")
+            txn = pickle.dumps(Transaction("modify", idents[i], event))
+            header = struct.pack("!I", len(txn))
+            f.write(header + txn)
 
     restored_calendar = calendar._restore()
     assert len(restored_calendar.events) == 6

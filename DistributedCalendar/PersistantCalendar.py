@@ -1,7 +1,8 @@
 import os
+import struct
 import pickle
 import logging
-from typing import NamedTuple, Optional
+from typing import NamedTuple, Optional, BinaryIO
 
 from .Calendar import Calendar, Repeats, Event, Day
 
@@ -111,16 +112,10 @@ class PersistantHashTable:
         if os.path.isfile(self.TXN_LOG_PATH):
             with open(self.TXN_LOG_PATH, "rb") as txn_log:
 
-                for txn_pickle in txn_log.readlines():
-                    try:
-                        txn = pickle.loads(txn_pickle.rstrip())
-                    except pickle.UnpicklingError as e:
-                        self.logger.warning(
-                            f"[Restore]: Detected malformed transaction. The server may have crashed whilst writing the transaction log. Continuing."
-                        )
-                        break
-
+                for txn in self._read_transactions(txn_log):
                     self.txns_logged += 1
+                    if not txn:
+                        break
                     self.logger.debug(f"[Restore]: Replaying transaction {txn}")
 
                     match txn.method:
@@ -133,13 +128,31 @@ class PersistantHashTable:
 
         return calendar
 
+    def _read_transactions(self, f: BinaryIO) -> Transaction | None:
+        """Read bytes from transaction file and generate Transactions"""
+        while True:
+            # read header
+            header = f.read(4)
+            if not header:
+                return None
+            if len(header) < 4:
+                break
+            # get payload
+            (size,) = struct.unpack("!I", header)
+            payload = f.read(size)
+            if len(payload) < size:
+                break
+            yield pickle.loads(payload)
+
     def _log(self, txn: Transaction) -> None:
         """Append a transaction to the log. If the log length exceeds CKPT_THRESHOLD, commit a checkpoint."""
         self.logger.debug(f"[Log] Logging transaction {txn}")
-        txn_pickle = pickle.dumps(txn)
-        self.txn_log_file.write(txn_pickle + b"\n")
+        txn_pickle = pickle.dumps(txn, protocol=pickle.HIGHEST_PROTOCOL)
+
+        header = struct.pack("!I", len(txn_pickle))
 
         # Force changes to disk
+        self.txn_log_file.write(header + txn_pickle)
         self.txn_log_file.flush()
         os.fsync(self.txn_log_file.fileno())
 
@@ -154,7 +167,9 @@ class PersistantHashTable:
 
         # 1. Write Table to new checkpoint file
         with open(self.NEW_CKPT_PATH, "wb") as new_ckpt_file:
-            pickle.dump(self.calendar.events, new_ckpt_file)
+            pickle.dump(
+                self.calendar.events, new_ckpt_file, protocol=pickle.HIGHEST_PROTOCOL
+            )
 
             # Force changes to disk
             new_ckpt_file.flush()
