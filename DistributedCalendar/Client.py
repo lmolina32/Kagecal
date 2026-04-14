@@ -1,70 +1,69 @@
-#!/usr/bin/env 
+#!/usr/bin/env
 
-import os 
 import sys
-import time 
-import json 
-import socket 
-import pickle 
-import logging 
+import time
+import socket
+import pickle
+import logging
 from datetime import datetime, timezone, timedelta
-from urllib.request import urlopen 
-from typing import Self, Optional, Tuple
-from Calendar import Repeats
+from typing import Self, Optional
+from Calendar import Repeats, Event
 
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s [%(peer_name)s - %(levelname)s] %(message)s",
+    format="[%(levelname)s %(asctime)s %(module)s:%(lineno)d] %(message)s",
     datefmt="%H:%M:%S",
 )
 
+
 class Client:
     BUFFER_SIZE = 2**10
-    MAX_BACKOFF = 128 
+    MAX_BACKOFF = 128
     MAX_RETRIES = 4
-    
+
     def __init__(self, client_name: str, host: str, port: int):
         self.client_name: str = client_name
-        self.host: str = host 
-        self.port: int = port 
-        self.socket: socket.socket = None 
-        self.backoff: int = 1 
+        self.host: str = host
+        self.port: int = port
+        self.backoff: int = 1
         self.socket_backoff: int = 0
-        log = logging.getLogger(__name__)
-        self.log = logging.LoggerAdapter(log, {"peer_name": client_name})
+        self.log = logging.getLogger(__name__)
         self.log.setLevel(logging.DEBUG)
+
+        self.socket: Optional[socket.socket] = None
         self._create_socket()
 
     def _create_socket(self) -> None:
         """Estbalish a connection to a specified (host, port) with exponential backoffs"""
         self._socket_close()
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        
-        while True:
-            try:
-                self.socket.settimeout(5.0)
-                self.socket.connect((self.host, self.port))
-                self.log.info(f"Connected to {self.host}:{self.port}")
-                break 
-            except Exception as e:
-                self.socket_backoff += 1 
-                if self.socket_backoff == self.MAX_RETRIES:
-                    self.log.warning(f"[RETRY]: Reached Max retries of {self.MAX_RETRIES}")
-                    self._socket_close() 
-                    raise ConnectionError(f"Failed after {self.MAX_RETRIES}")
-                self.log.error(f"_create_socket: {e}")
-                self.log.info(
-                    f"[RETRY]: Reconnection attempt in {self.backoff} seconds"
-                )
-                time.sleep(self.backoff)
-                self.backoff = min(self.backoff * 2, self.MAX_BACKOFF)
-                self._reset_raw_socket()
-                    
+
+        try:
+            for _ in range(self.MAX_RETRIES):
+                try:
+                    self.socket.settimeout(5.0)
+                    self.socket.connect((self.host, self.port))
+                    self.log.info(f"Connected to {self.host}:{self.port}")
+                    return
+                except Exception as e:
+                    self.log.error(f"_create_socket: {e}")
+                    self.log.info(
+                        f"[RETRY]: Reconnection attempt in {self.backoff} seconds"
+                    )
+                    time.sleep(self.backoff)
+                    self.backoff = min(self.backoff * 2, self.MAX_BACKOFF)
+                    self._reset_raw_socket()
+        except KeyboardInterrupt as e:
+            self.log.info("Client Shutting down")
+            self._socket_close()
+            return None
+        self._socket_close()
+        raise ConnectionError(f"Failed after {self.MAX_RETRIES} retries")
 
     def _reset_raw_socket(self) -> None:
         """Close and create new socket"""
         try:
-            self.socket.close()
+            self._socket_close()
         except Exception as e:
             self.log.error(f"_reset_raw_socket: {e}")
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -89,17 +88,28 @@ class Client:
         location: Optional[str] = None,
         repeats: Optional[Repeats] = None,
     ) -> Optional[int]:
-        send_msg: dict[str, str | int | Repeats |  None] = {"method": "create", "name": name, "start": start, "end": end, "description": description, "location": location, "repeats": repeats}
-        self.log.info(send_msg)
+
+        send_msg = {
+            "method": "create",
+            "params": {
+                "name": name,
+                "start": start,
+                "end": end,
+                "description": description,
+                "location": location,
+                "repeats": repeats,
+            },
+        }
         msg = self._serialize_data(send_msg)
         return self._connect_to_server(msg)
-    
+
     def delete(self, ident: int) -> None:
-        send_msg = {"method": "delete", "ident": ident}
+        send_msg = {"method": "delete", "params": {"ident": ident}}
         msg = self._serialize_data(send_msg)
         return self._connect_to_server(msg)
-    
-    def modify(self, 
+
+    def modify(
+        self,
         ident: int,
         name: str,
         start: int,
@@ -108,35 +118,41 @@ class Client:
         location: Optional[str] = None,
         repeats: Optional[Repeats] = None,
     ) -> Optional[int]:
-        send_msg = {"method": "modify", "ident": ident, "name": name, "start": start, "end": end, "description": description, "location": location, "repeats": repeats}
+        send_msg = {
+            "method": "modify",
+            "params": {
+                "ident": ident,
+                "name": name,
+                "start": start,
+                "end": end,
+                "description": description,
+                "location": location,
+                "repeats": repeats,
+            },
+        }
         msg = self._serialize_data(send_msg)
         return self._connect_to_server(msg)
 
-    def get_event(self, ident: int):
-        send_msg = {"method": "get_event", "ident": ident}
+    def get_event(self, ident: int) -> Event:
+        send_msg = {"method": "get_event", "params": {"ident": ident}}
         msg = self._serialize_data(send_msg)
         return self._connect_to_server(msg)
-    
-    def list_events(self):
+
+    def list_events(self) -> list[Event]:
         send_msg = {"method": "list_events"}
         msg = self._serialize_data(send_msg)
         return self._connect_to_server(msg)
 
-    def _connect_to_server(self, payload: bytes) -> Optional[int]:
+    def _connect_to_server(self, payload: bytes) -> bool | int | None:
         """Send msg to server and recieve acknowledgement"""
         try:
             if not self.socket:
                 self._create_socket()
-            retries = 0
-            while True:
+            for _ in range(self.MAX_RETRIES):
                 try:
                     self._send_data(payload)
                     return self._recv_ack()
                 except Exception as e:
-                    retries += 1
-                    if retries >= self.MAX_RETRIES:
-                        self._socket_close()
-                        raise ConnectionError(f"Failed after {self.MAX_RETRIES}")
                     self.log.error(f"connect_to_server: {e}")
                     self.log.info(
                         f"[RETRY]: Reconnection attempt in {self.backoff} seconds"
@@ -148,25 +164,30 @@ class Client:
             self.log.info("Client Shutting down")
             self._socket_close()
             return None
-    
-    def _serialize_data(self, payload: dict[str, str | int | Repeats | None]) -> bytes:
+        self._socket_close()
+        raise ConnectionError(f"Failed after {self.MAX_RETRIES} retries")
+
+    def _serialize_data(self, payload: dict[str, str | int | Repeats]) -> bytes:
         """serialize data to send over the wire"""
         pickled_msg = pickle.dumps(payload)
         header = str(len(pickled_msg)).encode() + b"\n"
         msg = header + pickled_msg
         return msg
-    
+
     def _send_data(self, payload: bytes) -> None:
         """Send payload to server"""
         if self.socket is None:
-            self.create_socket()
+            self._create_socket()
+        assert self.socket is not None
         self.socket.settimeout(5.0)
         self.socket.sendall(payload)
-    
-    def _recv_ack(self) -> bytes | bool | int:
+
+    def _recv_ack(self) -> bool | int | None:
         """Recieve acknowledgement from server"""
         header = b""
+        assert self.socket is not None
 
+        # 1. Recieve payload header (length)
         self.socket.settimeout(5.0)
         while b"\n" not in header:
             data = self.socket.recv(self.BUFFER_SIZE)
@@ -179,6 +200,7 @@ class Client:
         buffer = header[delim_idx + 1 :]
         read_amt = len(buffer)
 
+        # 2. Receive payload of specified size
         while read_amt < data_size:
             remaining = data_size - read_amt
             data = self.socket.recv(min(self.BUFFER_SIZE, remaining))
@@ -190,24 +212,24 @@ class Client:
         if len(buffer) == 0:
             raise Exception("Buffer read in 0 bytes")
         payload = pickle.loads(buffer)
-        self.log.info(
-            f"Success: Received Payload for {payload.get('method', '')} {payload.get('key', '')}"
-        )
         return self.parse_ack(payload)
-    
-    def parse_ack(self, payload: dict[str, str | bytes | bool]) -> bytes | bool | int:
+
+    def parse_ack(self, payload: dict[str, str | bytes | bool]) -> bool | int | None:
         """Parse acknowledgement and return expected response"""
         status = payload.get("status", "")
         if status == "success":
+            self.log.info(
+                f"Success: Received Payload for {payload.get('method', '')} {payload.get('key', '')}"
+            )
             method = payload.get("method", "")
 
             match method:
                 case "create":
-                    return payload.get("ident")
+                    return payload.get("ident", None)
                 case "delete":
                     return True
                 case "modify":
-                    return payload.get("ident")
+                    return payload.get("ident", None)
                 case "get_event":
                     pass
                 case "list_events":
@@ -218,30 +240,48 @@ class Client:
             raise Exception(f"Error: {payload.get('error', 'unknown error')}")
         else:
             raise Exception(f"Malformed ACK: missing status")
+        return None
 
     def __enter__(self) -> Self:
-        return self 
-    
+        return self
+
     def __exit__(self, exception_type, excpetion_value, exception_traceback) -> None:
         self._socket_close()
         return
 
-        
+
 def main() -> None:
     if len(sys.argv) != 4:
         print(f"Usage: python {sys.argv[0]} <client_name> <host> <port>")
         sys.exit(1)
 
     client_name = sys.argv[1]
-    host =  sys.argv[2]
+    host = sys.argv[2]
     port = int(sys.argv[3])
     with Client(client_name=client_name, host=host, port=port) as client:
         now_utc = int(datetime.now(timezone.utc).timestamp())
-        one_hour_later = int((datetime.now(timezone.utc)+ timedelta(hours=1)).timestamp())
-        id =client.create("progress report", start=now_utc, end=one_hour_later, location="", description="")
+        one_hour_later = int(
+            (datetime.now(timezone.utc) + timedelta(hours=1)).timestamp()
+        )
+        for i in range(25):
+            id = client.create(
+                "progress report",
+                start=now_utc,
+                end=one_hour_later,
+                location="",
+                description="",
+            )
+            client.delete(id)
+            id = client.create(
+                "progress report",
+                start=now_utc,
+                end=one_hour_later,
+                location="",
+                description="",
+            )
+            id = client.modify(id, "new_progress", start=now_utc, end=one_hour_later)
+            client.delete(id)
+
 
 if __name__ == "__main__":
     main()
-
-        
-        
