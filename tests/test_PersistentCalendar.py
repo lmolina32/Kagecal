@@ -10,20 +10,6 @@ from DistributedCalendar.Calendar import Calendar
 from DistributedCalendar.PersistantCalendar import PersistantHashTable, Transaction
 
 
-@pytest.fixture
-def calendar(mocker, tmp_path):
-    txn_log = tmp_path / "calendar.txns"
-    ckpt = tmp_path / "calendar.ckpt"
-    new_ckpt = tmp_path / "calendar.new.ckpt"
-
-    mocker.patch.object(PersistantHashTable, "CKPT_PATH", str(ckpt))
-    mocker.patch.object(PersistantHashTable, "NEW_CKPT_PATH", str(new_ckpt))
-    mocker.patch.object(PersistantHashTable, "TXN_LOG_PATH", str(txn_log))
-    calendar = PersistantHashTable()
-    calendar.calendar = Calendar()
-    return calendar
-
-
 def test_init_calls_restore(mocker):
     mock_restore = mocker.patch.object(
         PersistantHashTable, "_restore", return_value=MagicMock()

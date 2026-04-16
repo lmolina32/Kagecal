@@ -73,15 +73,6 @@ def test_calendar_create() -> None:
     assert ident4 == None
 
 
-@pytest.fixture
-def filled_in_calendar() -> Calendar:
-    calendar = Calendar()
-    ident1 = calendar.create(**create_event().__dict__)
-    ident2 = calendar.create(**create_event(name="new").__dict__)
-    ident3 = calendar.create(**create_event(name="new1").__dict__)
-    return calendar
-
-
 def test_calendar_delete(filled_in_calendar) -> None:
     ident1, ident2, ident3 = filled_in_calendar.events.keys()
     assert len(filled_in_calendar.events) == 3
