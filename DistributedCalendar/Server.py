@@ -57,13 +57,6 @@ class Server:
             # set up name service daemon
             t = threading.Thread(
                 target=self.name_server,
-                args=(
-                    self.stop,
-                    self.port,
-                    self.project_name,
-                    self.server_name,
-                    self.log,
-                ),
                 daemon=True,
             )
             t.start()
@@ -327,32 +320,27 @@ class Server:
 
     def name_server(
         self,
-        stop_event: threading.Event,
-        server_port: int,
-        project_name: str,
-        peer_name: str,
-        log: logging.Logger,
     ) -> None:
         """Periodically register this server with the ND catalog via UDP."""
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         hostname: str = "catalog.cse.nd.edu"
         port: int = 9097
         raw_data: Dict[str, str | int] = {
-            "type": "hashtable",
+            "type": "calendar",
             "owner": "lmolina3",
-            "port": server_port,
-            "project": project_name,
-            "peer_name": peer_name,
+            "port": self.port,
+            "project": self.project_name,
+            "peer_name": self.server_name,
         }
         data = json.dumps(raw_data).encode()
         data_size = len(data)
-        while not stop_event.is_set():
+        while not self.stop.is_set():
             sent_amt = 0
             while sent_amt < data_size:
                 sent = s.sendto(data[: data_size - sent_amt], (hostname, port))
                 sent_amt += sent
-            log.info(f"Send UDP packet for naming to {hostname}")
-            stop_event.wait(60)
+            self.log.info(f"Send UDP packet for naming to {hostname}")
+            self.stop.wait(60)
         s.close()
 
 
