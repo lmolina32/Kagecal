@@ -42,7 +42,8 @@ class PersistantHashTable:
         self.NEW_CKPT_PATH = str(data_path / (ckpt_path + ".new"))
         self.TXN_LOG_PATH = str(data_path / txn_log_path)
 
-        self.txns_logged = 0
+        self._logical_clock: int = 0
+        self.txns_logged: int = 0
         self.calendar: Calendar = self._restore()
         self.txn_log_file = open(self.TXN_LOG_PATH, "ab")
 
@@ -102,6 +103,18 @@ class PersistantHashTable:
         txn = Transaction("modify", ident, event)
         self._log(txn)
         return new_ident
+
+    def get_event(self, ident) -> Optional[Event]:
+        """Retrives an event with a given identifier from the calendar, regardless of whether or not the event exists"""
+        return self.calendar.get_event(ident)
+
+    def list_events(self) -> dict[int, Event]:
+        """Retrives all events in the calendar"""
+        return self.calendar.list_events()
+
+    @property
+    def logical_clock(self):
+        return self._logical_clock
 
     def _restore(self) -> Calendar:
         """Restore the in-memory calendar and recover from server failure by scanning the checkpoint and log, and retrying a checkpoint if necessary. Updates the instance transaction counter to reflect replayed transactions."""

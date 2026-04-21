@@ -29,6 +29,7 @@ class Peer:
 
         self.log = logging.getLogger()
         self.server: Server = self.startup()
+        # TODO: UUID for pid, save in ckpt log, timestamp?
 
     def discovery_peers(self) -> List[Tuple[str, int, str]]:
         """
@@ -88,6 +89,7 @@ class Peer:
         self.own_port = server.port
 
         # TODO: ADD logic to find initial peer, leader or not leader
+        # TODO: if leader found resync
 
         return server
 
@@ -100,6 +102,11 @@ class Peer:
             self.log.info(f"{'-'*50}\nClosing down Peer")
         finally:
             self.server._cleanup()
+
+    def send_request(self) -> None:
+        # TODO: have logic if you are the leader (need a resync)
+        # TODO: have logic if you are the follower (send to leader)
+        ...
 
 
 if __name__ == "__main__":

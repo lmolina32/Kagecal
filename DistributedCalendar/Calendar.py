@@ -33,9 +33,6 @@ class Repeats:
         # Hash based on the same attributes used for equality
         return hash((self.repeats_every, self.repeats_starting, self.repeats_until))
 
-   
-
-
 
 @dataclass
 class Event:
@@ -120,18 +117,18 @@ class Calendar:
             return None
         del self.events[ident]
         return new_ident
-    
-    def get_event():
-        """Retrives an event with a given identifier from the calendar, regardless of whether or not the event exists"""
-        pass 
-    
-    def list_events():
-        """Retrives all events in the calendar"""
-        pass
 
-    def search_events():
+    def get_event(self, ident) -> Optional[Event]:
+        """Retrives an event with a given identifier from the calendar, regardless of whether or not the event exists"""
+        return self.events.get(ident, None)
+
+    def list_events(self) -> dict[int, Event]:
+        """Retrives all events in the calendar"""
+        return dict(self.events)
+
+    def search_events(self):
         """Searches calendar for events that match description"""
-        pass
+        ...
 
     def _validate_event(self, event: Event) -> bool:
         """Checks if an event is consistent with the following invariants:

@@ -232,9 +232,9 @@ class Client:
                 case "modify":
                     return payload.get("ident", None)
                 case "get_event":
-                    pass
+                    return payload.get("event", None)
                 case "list_events":
-                    pass
+                    return payload.get("calendar", None)
                 case _:
                     raise Exception(f"Unknown method in ACK: {method}")
         elif status == "failure":
@@ -249,6 +249,7 @@ class Client:
     def __exit__(self, exception_type, excpetion_value, exception_traceback) -> None:
         self._socket_close()
         return
+
 
 def main() -> None:
     if len(sys.argv) != 4:
@@ -265,22 +266,16 @@ def main() -> None:
         )
         for i in range(25):
             id = client.create(
-                "progress report",
+                f"progress report{i}",
                 start=now_utc,
                 end=one_hour_later,
                 location="",
                 description="",
             )
-            client.delete(id)
-            id = client.create(
-                "progress report",
-                start=now_utc,
-                end=one_hour_later,
-                location="",
-                description="",
-            )
-            id = client.modify(id, "new_progress", start=now_utc, end=one_hour_later)
-            client.delete(id)
+            # client.delete(id)
+
+        print(client.list_events())
+        print(len(client.list_events()))
 
 
 if __name__ == "__main__":

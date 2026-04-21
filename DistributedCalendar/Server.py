@@ -9,7 +9,7 @@ import logging
 import threading
 from typing import Optional, Tuple, List, Dict
 
-from .Calendar import Calendar, Repeats
+from .Calendar import Calendar, Repeats, Event
 from .PersistantCalendar import PersistantHashTable
 
 
@@ -229,7 +229,7 @@ class Server:
 
     def _parse_request(
         self, request: dict[str, str], fileno: int
-    ) -> dict[str, str | int]:
+    ) -> dict[str, str | int | dict[int, Event]]:
         if fileno not in self.client_sockets:
             self.log.error(f"parse_request: {fileno} not in client sockets")
             return {"status": "failure", "error": f"{fileno} not in client sockets"}
@@ -249,31 +249,41 @@ class Server:
                 case "create":
                     valid, msg = self._validate_rpc(method, params)
                     if not valid:
-                        return {"method": "create", "status": "failure", "error": msg}
+                        return {"method": method, "status": "failure", "error": msg}
                     ident = self.persistence.create(**params)
                     if ident is None:
-                        return {"method": "create", "status": "failure"}
-                    return {"method": "create", "status": "success", "ident": ident}
+                        return {"method": method, "status": "failure"}
+                    return {"method": method, "status": "success", "ident": ident}
                 case "delete":
                     valid, msg = self._validate_rpc(method, params)
                     if not valid:
-                        return {"method": "create", "status": "failure", "error": msg}
+                        return {"method": method, "status": "failure", "error": msg}
                     ident = request.get("ident")
                     self.persistence.delete(**params)
-                    return {"method": "delete", "status": "success"}
+                    return {"method": method, "status": "success"}
                 case "modify":
                     valid, msg = self._validate_rpc(method, params)
                     if not valid:
-                        return {"method": "create", "status": "failure", "error": msg}
+                        return {"method": method, "status": "failure", "error": msg}
                     ident = self.persistence.modify(**params)
                     if ident is None:
-                        return {"method": "modify", "status": "failure"}
-                    return {"method": "modify", "status": "success", "ident": ident}
-
+                        return {"method": method, "status": "failure"}
+                    return {"method": method, "status": "success", "ident": ident}
                 case "get_event":
-                    pass
+                    valid, msg = self._validate_rpc(method, params)
+                    if not valid:
+                        return {"method": method, "status": "failure", "error": msg}
+                    event = self.persistence.get_event(**params)
+                    if event is None:
+                        return {"method": method, "status": "failure"}
+                    return {"method": method, "status": "success", "event": event}
                 case "list_events":
-                    pass
+                    all_events = self.persistence.list_events()
+                    return {
+                        "method": method,
+                        "status": "success",
+                        "calendar": all_events,
+                    }
                 case _:
                     self.log.info(
                         f"Unknown method from {self.client_addresses[fileno]}"
@@ -302,6 +312,9 @@ class Server:
                 return False, f"{method} requires the parameter start"
             if params.get("end", None) is None:
                 return False, f"{method} requires the parameter end"
+
+        if method == "get_event" and params.get("ident", None) is None:
+            return False, f"{method} requires the parameter ident"
         return True, ""
 
     def _close_client_socket(self, fileno: int) -> None:
@@ -359,7 +372,11 @@ def main() -> None:
         sys.exit(1)
     project_name = sys.argv[1]
     server_name = sys.argv[2]
-    server = Server(project_name=project_name, server_name=server_name)
+    ckpt: str = f"calendar_{project_name}_{server_name}.ckpt"
+    txn: str = f"calendar_{project_name}_{server_name}.txn"
+    server = Server(
+        project_name=project_name, server_name=server_name, ckpt_path=ckpt, txn_path=txn
+    )
     server.start()
     server.run()
 
