@@ -1,7 +1,7 @@
 # Kagecal 
 
 **Team**: Sam Neisewander, Leonardo Molina  
-**Course**: CSE 40771 - Distributed Systems, Spring 2026
+**Course**: [CSE 40771 - Distributed Systems](https://dthain.github.io/distsys-sp26/), Spring 2026
 
 # Repisotry Structure 
 ```bash 
