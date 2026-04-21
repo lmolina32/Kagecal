@@ -26,7 +26,14 @@ class Server:
     BUFFER_SIZE = 2**10
     MAX_ENTRIES = 100
 
-    def __init__(self, project_name: str, server_name: str, port: int = 0):
+    def __init__(
+        self,
+        project_name: str,
+        server_name: str,
+        ckpt_path: str,
+        txn_path: str,
+        port: int = 0,
+    ):
         self.project_name: str = project_name
         self.server_name: str = server_name
         self.port: int = port
@@ -40,7 +47,9 @@ class Server:
         self.log.setLevel(logging.DEBUG)
 
         self.calendar = Calendar()
-        self.persistence = PersistantHashTable()
+        self.persistence = PersistantHashTable(
+            ckpt_path=ckpt_path, txn_log_path=txn_path
+        )
         # TODO: add logic for elections maybe need attributes (synced peers, queue for seralization??)
 
     def start(self) -> None:

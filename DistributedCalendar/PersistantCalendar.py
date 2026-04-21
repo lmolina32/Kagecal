@@ -2,6 +2,7 @@ import os
 import struct
 import pickle
 import logging
+from pathlib import Path
 from typing import NamedTuple, Optional, BinaryIO
 
 from .Calendar import Calendar, Repeats, Event, Day
@@ -16,12 +17,14 @@ class Transaction(NamedTuple):
 class PersistantHashTable:
 
     # Global module configs
-    CKPT_PATH = "calendar.ckpt"
-    NEW_CKPT_PATH = "calendar.new.ckpt"
-    TXN_LOG_PATH = "calendar.txns"
     CKPT_THRESHOLD = 100
 
-    def __init__(self, log_level: int = logging.INFO) -> None:
+    def __init__(
+        self,
+        ckpt_path: str = "calendar.ckpt",
+        txn_log_path: str = "calendar.txns",
+        log_level: int = logging.INFO,
+    ) -> None:
         # Logging
         log_format = "[%(levelname)s %(asctime)s %(module)s:%(lineno)d] %(message)s"
         logging.basicConfig(
@@ -33,6 +36,12 @@ class PersistantHashTable:
         self.logger = logging.getLogger()
 
         # Initialize actual hash table. It is important that these happen in this order.
+        data_path = Path.cwd() / "data"
+        data_path.mkdir(parents=True, exist_ok=True)
+        self.CKPT_PATH = str(data_path / ckpt_path)
+        self.NEW_CKPT_PATH = str(data_path / (ckpt_path + ".new"))
+        self.TXN_LOG_PATH = str(data_path / txn_log_path)
+
         self.txns_logged = 0
         self.calendar: Calendar = self._restore()
         self.txn_log_file = open(self.TXN_LOG_PATH, "ab")

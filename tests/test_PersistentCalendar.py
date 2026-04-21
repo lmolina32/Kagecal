@@ -22,8 +22,8 @@ def test_init_calls_restore(mocker):
 def test_init_opens_txn_log(mocker):
     mocker.patch.object(PersistantHashTable, "_restore", return_value=MagicMock())
     mock_file = mocker.patch("builtins.open", mock_open())
-    PersistantHashTable()
-    mock_file.assert_called_once_with(PersistantHashTable.TXN_LOG_PATH, "ab")
+    p = PersistantHashTable()
+    mock_file.assert_called_once_with(p.TXN_LOG_PATH, "ab")
 
 
 def test_init_txns_logged_starts_at_zero(mocker):
@@ -73,7 +73,7 @@ def test_persistent_restore_checkpoint_logic(calendar, tmp_path) -> None:
 
 
 def test_persistent_restore_new_checkpoint_logic(calendar, tmp_path, mocker) -> None:
-    new_ckpt = tmp_path / "calendar.new.ckpt"
+    new_ckpt = tmp_path / "calendar.ckpt.new"
     new_ckpt.touch()
 
     # assert that new_checkpoint reads calles _checkpoint
@@ -209,7 +209,7 @@ def test_persistent_checkpoint(calendar, tmp_path) -> None:
         c.create(**create_event(start=i).__dict__)
 
     calendar.calendar = c
-    new_ckpt = tmp_path / "calendar.new.ckpt"
+    new_ckpt = tmp_path / "calendar.ckpt.new"
     ckpt = tmp_path / "calendar.ckpt"
     ckpt.touch()
     ckpt.write_bytes(b"data...")
