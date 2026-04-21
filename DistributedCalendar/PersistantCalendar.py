@@ -117,6 +117,9 @@ class PersistantHashTable:
             os.remove(self.NEW_CKPT_PATH)
             self._checkpoint()
 
+        self.logger.info(
+            f"[Restore] Restored calendar with {len(calendar.events)} events"
+        )
         # Replay transaction log, skipping the trailing entry if it is malformed.
         if os.path.isfile(self.TXN_LOG_PATH):
             with open(self.TXN_LOG_PATH, "rb") as txn_log:
@@ -135,6 +138,7 @@ class PersistantHashTable:
                         case "modify":
                             calendar.modify(ident=txn.identifier, **txn.event.__dict__)
 
+        self.logger.info(f"[Restore] Restored {self.txns_logged} events")
         return calendar
 
     def _read_transactions(self, f: BinaryIO) -> Transaction | None:
