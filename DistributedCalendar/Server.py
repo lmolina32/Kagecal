@@ -7,6 +7,7 @@ import select
 import pickle
 import logging
 import threading
+from enum import Enum
 from typing import Optional, Tuple, List, Dict
 
 from .Calendar import Calendar, Repeats, Event
@@ -19,6 +20,11 @@ logging.basicConfig(
     format="[%(levelname)s %(asctime)s %(module)s:%(lineno)d] %(message)s",
     datefmt="%H:%M:%S",
 )
+
+
+class ServerMode(Enum):
+    FOLLOWER = 0
+    LEADER = 1
 
 
 # TODO: update type hints
@@ -37,20 +43,24 @@ class Server:
         self.project_name: str = project_name
         self.server_name: str = server_name
         self.port: int = port
+        self.host: str = socket.gethostname()
         self.socket: Optional[socket.socket] = None
-        self.client_sockets: dict[int, socket.socket] = {}
-        self.client_addresses: dict[int, Tuple[str, int]] = {}
+        self.client_sockets: Dict[int, socket.socket] = {}
+        self.client_addresses: Dict[int, Tuple[str, int]] = {}
         self.threads: List[threading.Thread] = []
         self.stop: threading.Event = threading.Event()
         self.epoll: Optional[select.epoll] = None
         self.log = logging.getLogger(__name__)
         self.log.setLevel(logging.DEBUG)
-
-        self.calendar = Calendar()
         self.persistence = PersistantHashTable(
             ckpt_path=ckpt_path, txn_log_path=txn_path
         )
+        # TODO: upon sync, peer sends the leader their own host, port
         # TODO: add logic for elections maybe need attributes (synced peers, queue for seralization??)
+        self.followers: List[Tuple[int, str]] = []
+        self.mode: ServerMode = ServerMode.FOLLOWER
+        self.leaders_address: Tuple[int, str] = ("", 0)
+        # self.logical_clock: int = self.persistence.logical_clock
 
     def start(self) -> None:
         """Initilize server by binding to a port, spawning daemon for nameserver, and listening for requests"""
@@ -242,6 +252,8 @@ class Server:
                 "status": "failure",
                 "error": "malformed payload: expected dict",
             }
+
+        # TODO: add logic, leader does all of the below, follower only allows reads and rejects everything else
         try:
             method = request.get("method", "")
             params = request.get("params", {})
@@ -278,11 +290,39 @@ class Server:
                         return {"method": method, "status": "failure"}
                     return {"method": method, "status": "success", "event": event}
                 case "list_events":
-                    all_events = self.persistence.list_events()
                     return {
                         "method": method,
                         "status": "success",
-                        "calendar": all_events,
+                        "calendar": self.persistence.list_events(),
+                    }
+                case "who_is_leader":
+                    if self.mode == ServerMode.LEADER:
+                        return {
+                            "method": method,
+                            "status": "success",
+                            "host": self.host,
+                            "port": self.port,
+                        }
+                    else:
+                        return {
+                            "method": method,
+                            "status": "success",
+                            "host": self.leaders_address[0],
+                            "port": self.leaders_address[1],
+                        }
+                case "register_and_sync":
+                    valid, msg = self._validate_rpc(method, params)
+                    if not valid:
+                        return {"method": method, "status": "failure", "error": msg}
+                    self.followers.append((params["host"], params["port"]))
+                    self.log.info(
+                        f"adding {params["host"]}:{params["port"]} to know peers"
+                    )
+                    return {
+                        "method": method,
+                        "status": "success",
+                        "logical_clock": self.persistence.logical_clock,
+                        "calendar": self.persistence.list_events(),
                     }
                 case _:
                     self.log.info(
@@ -315,6 +355,12 @@ class Server:
 
         if method == "get_event" and params.get("ident", None) is None:
             return False, f"{method} requires the parameter ident"
+
+        if method == "register_and_sync":
+            if params.get("host", None) is None:
+                return False, f"{method} requires the parameter host"
+            if params.get("port", None) is None:
+                return False, f"{method} requires the parameter port"
         return True, ""
 
     def _close_client_socket(self, fileno: int) -> None:
@@ -351,6 +397,7 @@ class Server:
             "type": "calendar",
             "owner": "lmolina3",
             "port": self.port,
+            "host": self.host,
             "project": self.project_name,
             "peer_name": self.server_name,
         }

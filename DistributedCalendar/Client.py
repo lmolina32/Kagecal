@@ -6,7 +6,7 @@ import socket
 import pickle
 import logging
 from datetime import datetime, timezone, timedelta
-from typing import Self, Optional
+from typing import Self, Optional, Tuple, Dict, List
 
 from .Calendar import Repeats, Event
 
@@ -144,6 +144,19 @@ class Client:
         msg = self._serialize_data(send_msg)
         return self._connect_to_server(msg)
 
+    def who_is_leader(self) -> Tuple[str, int]:
+        send_msg = {"method": "who_is_leader"}
+        msg = self._serialize_data(send_msg)
+        return self._connect_to_server(msg)
+
+    def register_and_sync(self, host: str, port: int) -> Tuple[int, Dict[int, Event]]:
+        send_msg = {
+            "method": "register_and_sync",
+            "params": {"host": host, "port": port},
+        }
+        msg = self._serialize_data(send_msg)
+        return self._connect_to_server(msg)
+
     def _connect_to_server(self, payload: bytes) -> bool | int | None:
         """Send msg to server and recieve acknowledgement"""
         try:
@@ -234,7 +247,11 @@ class Client:
                 case "get_event":
                     return payload.get("event", None)
                 case "list_events":
-                    return payload.get("calendar", None)
+                    return payload.get("calendar", {})
+                case "who_is_leader":
+                    return payload.get("host", ""), payload.get("port", 0)
+                case "register_and_sync":
+                    return payload.get("logical_clock", 0), payload.get("calendar", {})
                 case _:
                     raise Exception(f"Unknown method in ACK: {method}")
         elif status == "failure":
@@ -273,9 +290,6 @@ def main() -> None:
                 description="",
             )
             # client.delete(id)
-
-        print(client.list_events())
-        print(len(client.list_events()))
 
 
 if __name__ == "__main__":
