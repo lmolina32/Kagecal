@@ -10,7 +10,7 @@ import pickle
 import logging
 import threading
 from enum import Enum
-from typing import Optional, Tuple, List, Dict, Callable
+from typing import Optional, Callable
 
 from .Calendar import Calendar, Repeats, Event
 from .PersistantCalendar import PersistantHashTable
@@ -31,8 +31,7 @@ class ServerMode(Enum):
 
 # TODO: update type hints
 class Server:
-    BUFFER_SIZE = 2**10
-    MAX_ENTRIES = 100
+    BUFFER_SIZE = 1 << 12
 
     def __init__(
         self,
@@ -47,9 +46,11 @@ class Server:
         self.port: int = port
         self.host: str = socket.gethostname()
         self.socket: Optional[socket.socket] = None
-        self.client_sockets: Dict[int, socket.socket] = {}
-        self.client_addresses: Dict[int, Tuple[str, int]] = {}
-        self.threads: List[threading.Thread] = []
+        self.client_sockets: dict[int, socket.socket] = {}
+        """Maps a epoll file descriptor to a socket."""
+        self.client_addresses: dict[int, tuple[str, int]] = {}
+        """Maps a epoll file descriptor to client endpoint."""
+        self.threads: list[threading.Thread] = []
         self.stop: threading.Event = threading.Event()
         self.epoll: Optional[select.epoll] = None
         self.log = logging.getLogger(__name__)
@@ -59,11 +60,11 @@ class Server:
         )
         # TODO: upon sync, peer sends the leader their own host, port
         # TODO: add logic for elections maybe need attributes (synced peers, queue for seralization??)
-        self.followers: List[Tuple[int, str]] = []
+        self.followers: list[tuple[int, str]] = []
         self.mode: ServerMode = ServerMode.FOLLOWER
-        self.leaders_address: Tuple[int, str] = ("", 0)
+        self.leaders_address: tuple[int, str] = ("", 0)
 
-        self.map_to_method: Dict[str, Callable[[str, Dict], Dict]] = {
+        self.map_to_method: dict[str, Callable[[str, dict], dict]] = {
             "create": self._create,
             "delete": self._delete,
             "modify": self._modify,
@@ -74,8 +75,6 @@ class Server:
         }
         # self.logical_clock: int = self.persistence.logical_clock
 
-    def start(self) -> None:
-        """Initilize server by binding to a port, spawning daemon for nameserver, and listening for requests"""
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         try:
             # set up server socket
@@ -100,20 +99,6 @@ class Server:
         except Exception as e:
             self.log.error(f"Could not start the Server: {e}")
             sys.exit(1)
-
-    def run(self) -> None:
-        """Run server to handle reqeusts"""
-        if not self.socket:
-            self.start()
-
-        try:
-            while True:
-                # TODO: can add election logic here potentially (e.g handle events then handle election)
-                self._handle_events()
-        except KeyboardInterrupt:
-            self.log.info(f"\n{'-'*50}\nShutting down server")
-        finally:
-            self._cleanup()
 
     def _cleanup(self) -> None:
         """Shutdown server gracefully"""
@@ -163,8 +148,8 @@ class Server:
                         continue
                     if request == b"":
                         continue
-                    if not isinstance(request, dict):
-                        continue
+                    # if not isinstance(request, dict):
+                    #     continue
                     response = self._parse_request(request, fileno)
                     self._send_ack(response, fileno)
                 except Exception as e:
@@ -188,9 +173,9 @@ class Server:
 
     def _recv_all(self, fileno: int) -> dict[str, str] | bytes | None:
         """Recieve entire payload from file descriptor of interest, return the payload if not malformed or broken connection"""
-        if fileno not in self.client_sockets:
-            self.log.error(f"recv_all: {fileno} not in client sockets")
-            return {}
+        # if fileno not in self.client_sockets:
+        #     self.log.error(f"recv_all: {fileno} not in client sockets")
+        #     return {}
         client_socket = self.client_sockets[fileno]
         client_address = self.client_addresses[fileno]
         header = b""
@@ -237,9 +222,9 @@ class Server:
 
     def _send_ack(self, payload: dict[str, str], fileno: int) -> None:
         """Send acknowledgment of the request to file descriptor"""
-        if fileno not in self.client_sockets:
-            self.log.error(f"send_ack: {fileno} not in client sockets")
-            return
+        # if fileno not in self.client_sockets:
+        #     self.log.error(f"send_ack: {fileno} not in client sockets")
+        #     return
         client_socket = self.client_sockets[fileno]
         pickled_msg = pickle.dumps(payload)
         header = str(len(pickled_msg)).encode() + b"\n"
@@ -252,18 +237,18 @@ class Server:
     def _parse_request(
         self, request: dict[str, str], fileno: int
     ) -> dict[str, str | int | dict[int, Event]]:
-        if fileno not in self.client_sockets:
-            self.log.error(f"parse_request: {fileno} not in client sockets")
-            return {"status": "failure", "error": f"{fileno} not in client sockets"}
+        # if fileno not in self.client_sockets:
+        #     self.log.error(f"parse_request: {fileno} not in client sockets")
+        #     return {"status": "failure", "error": f"{fileno} not in client sockets"}
 
-        if not isinstance(request, dict):
-            self.log.info(
-                f"Request was malformed from {self.client_addresses.get(fileno, "unknown")}"
-            )
-            return {
-                "status": "failure",
-                "error": "malformed payload: expected dict",
-            }
+        # if not isinstance(request, dict):
+        #     self.log.info(
+        #         f"Request was malformed from {self.client_addresses.get(fileno, "unknown")}"
+        #     )
+        #     return {
+        #         "status": "failure",
+        #         "error": "malformed payload: expected dict",
+        #     }
 
         # TODO: add logic, leader does all of the below, follower only allows reads and rejects everything else
         try:
@@ -274,7 +259,7 @@ class Server:
                     # TODO: need to add who_is_leader + register_and_sync when election
                     return {
                         "Status": "failure",
-                        "error": "Not the leader, send all requests to elader",
+                        "error": "Not the leader, send all requests to leader",
                     }
             func = self.map_to_method.get(method, None)
             if func is None:
@@ -285,7 +270,7 @@ class Server:
             self.log.error(f"{e}")
             return {"status": "failure", "error": str(e)}
 
-    def _create(self, method: str, params: Dict) -> Dict:
+    def _create(self, method: str, params: dict) -> dict:
         valid, msg = self._validate_rpc(method, params)
         if not valid:
             return {"method": method, "status": "failure", "error": msg}
@@ -294,14 +279,14 @@ class Server:
             return {"method": method, "status": "failure"}
         return {"method": method, "status": "success", "ident": ident}
 
-    def _delete(self, method: str, params: Dict) -> Dict:
+    def _delete(self, method: str, params: dict) -> dict:
         valid, msg = self._validate_rpc(method, params)
         if not valid:
             return {"method": method, "status": "failure", "error": msg}
         self.persistence.delete(**params)
         return {"method": method, "status": "success"}
 
-    def _modify(self, method: str, params: Dict) -> Dict:
+    def _modify(self, method: str, params: dict) -> dict:
         valid, msg = self._validate_rpc(method, params)
         if not valid:
             return {"method": method, "status": "failure", "error": msg}
@@ -310,7 +295,7 @@ class Server:
             return {"method": method, "status": "failure"}
         return {"method": method, "status": "success", "ident": ident}
 
-    def _get_event(self, method: str, params: Dict) -> Dict:
+    def _get_event(self, method: str, params: dict) -> dict:
         valid, msg = self._validate_rpc(method, params)
         if not valid:
             return {"method": method, "status": "failure", "error": msg}
@@ -319,30 +304,31 @@ class Server:
             return {"method": method, "status": "failure"}
         return {"method": method, "status": "success", "event": event}
 
-    def _list_events(self, method: str, params: Dict) -> Dict:
+    def _list_events(self, method: str, params: dict) -> dict:
         return {
             "method": method,
             "status": "success",
             "calendar": self.persistence.list_events(),
         }
 
-    def _who_is_leader(self, method: str, params: Dict) -> Dict:
-        if self.mode == ServerMode.LEADER:
-            return {
-                "method": method,
-                "status": "success",
-                "host": self.host,
-                "port": self.port,
-            }
-        else:
-            return {
-                "method": method,
-                "status": "success",
-                "host": self.leaders_address[0],
-                "port": self.leaders_address[1],
-            }
+    def _who_is_leader(self, method: str, params: dict) -> dict:
+        match self.mode:
+            case ServerMode.LEADER:
+                return {
+                    "method": method,
+                    "status": "success",
+                    "host": self.host,
+                    "port": self.port,
+                }
+            case ServerMode.FOLLOWER:
+                return {
+                    "method": method,
+                    "status": "success",
+                    "host": self.leaders_address[0],
+                    "port": self.leaders_address[1],
+                }
 
-    def _register_and_sync(self, method: str, params: Dict) -> Dict:
+    def _register_and_sync(self, method: str, params: dict) -> dict:
         valid, msg = self._validate_rpc(method, params)
         if not valid:
             return {"method": method, "status": "failure", "error": msg}
@@ -357,7 +343,7 @@ class Server:
 
     def _validate_rpc(
         self, method: str, params: dict[str, str | int | Repeats | None]
-    ) -> Tuple[bool, str]:
+    ) -> tuple[bool, str]:
         if not params:
             return (
                 False,
@@ -365,18 +351,17 @@ class Server:
             )
         if not isinstance(params, dict):
             return False, f"Parameters must be passed in as a dictionary"
-        if (method == "delete" or method == "modify") and params.get("ident", "") == "":
-            return False, f"{method} requires the parameter ident"
-        if method == "create" or method == "modify":
-            if params.get("name", None) is None:
-                return False, f"{method} requires the parameter name"
-            if params.get("start", None) is None:
-                return False, f"{method} requires the parameter start"
-            if params.get("end", None) is None:
-                return False, f"{method} requires the parameter end"
 
-        if method == "get_event" and params.get("ident", None) is None:
+        if (method in {"delete", "modify", "get_events"}) and "ident" not in params:
             return False, f"{method} requires the parameter ident"
+
+        if method == "create" or method == "modify":
+            if "name" not in params:
+                return False, f"{method} requires the parameter name"
+            if "start" not in params:
+                return False, f"{method} requires the parameter start"
+            if "end" not in params:
+                return False, f"{method} requires the parameter end"
 
         if method == "register_and_sync":
             if params.get("host", None) is None:
@@ -423,7 +408,7 @@ class Server:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         hostname: str = "catalog.cse.nd.edu"
         port: int = 9097
-        raw_data: Dict[str, str | int] = {
+        raw_data: dict[str, str | int] = {
             "type": "calendar",
             "owner": "lmolina3",
             "port": self.port,
@@ -454,8 +439,15 @@ def main() -> None:
     server = Server(
         project_name=project_name, server_name=server_name, ckpt_path=ckpt, txn_path=txn
     )
-    server.start()
-    server.run()
+
+    try:
+        while True:
+            # TODO: can add election logic here potentially (e.g handle events then handle election)
+            server._handle_events()
+    except KeyboardInterrupt:
+        server.log.info(f"\n{'-'*50}\nShutting down server")
+    finally:
+        server._cleanup()
 
 
 if __name__ == "__main__":

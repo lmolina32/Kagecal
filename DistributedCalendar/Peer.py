@@ -94,7 +94,6 @@ class Peer:
             txn_path=txn,
         )
 
-        server.start()
         self.own_port = server.port
 
         peer_list = self.discovery_peers()

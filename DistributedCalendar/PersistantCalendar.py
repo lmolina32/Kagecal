@@ -3,7 +3,7 @@ import struct
 import pickle
 import logging
 from pathlib import Path
-from typing import NamedTuple, Optional, BinaryIO
+from typing import NamedTuple, Optional, BinaryIO, Generator
 
 from .Calendar import Calendar, Repeats, Event, Day
 
@@ -136,11 +136,8 @@ class PersistantHashTable:
         # Replay transaction log, skipping the trailing entry if it is malformed.
         if os.path.isfile(self.TXN_LOG_PATH):
             with open(self.TXN_LOG_PATH, "rb") as txn_log:
-
                 for txn in self._read_transactions(txn_log):
                     self.txns_logged += 1
-                    if not txn:
-                        break
                     self.logger.debug(f"[Restore]: Replaying transaction {txn}")
 
                     match txn.method:
@@ -154,14 +151,12 @@ class PersistantHashTable:
         self.logger.info(f"[Restore] Restored {self.txns_logged} events")
         return calendar
 
-    def _read_transactions(self, f: BinaryIO) -> Transaction | None:
+    def _read_transactions(self, f: BinaryIO) -> Generator[Transaction, None, None]:
         """Read bytes from transaction file and generate Transactions"""
         while True:
             # read header
             header = f.read(4)
-            if not header:
-                return None
-            if len(header) < 4:
+            if not header or len(header) < 4:
                 break
             # get payload
             (size,) = struct.unpack("!I", header)
@@ -169,6 +164,8 @@ class PersistantHashTable:
             if len(payload) < size:
                 break
             yield pickle.loads(payload)
+
+        return
 
     def _log(self, txn: Transaction) -> None:
         """Append a transaction to the log. If the log length exceeds CKPT_THRESHOLD, commit a checkpoint."""
