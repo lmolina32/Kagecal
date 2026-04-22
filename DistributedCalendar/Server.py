@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pdb
 import sys
 import json
 import socket
@@ -12,6 +13,7 @@ import threading
 from enum import Enum
 from typing import Optional, Callable
 
+from .Client import Client
 from .Calendar import Calendar, Repeats, Event
 from .PersistantCalendar import PersistantHashTable
 
@@ -252,9 +254,15 @@ class Server:
 
         # TODO: add logic, leader does all of the below, follower only allows reads and rejects everything else
         try:
+            # TODO: Idea add message_from or from key in dictionary, that has address, if the address is from a leader, receivec by a follower, then you know to add it to your calendar.
+            # pdb.set_trace()
             method = request.get("method", "")
             params = request.get("params", {})
-            if self.mode == ServerMode.FOLLOWER:
+            msg_from = request.get("from", ())
+            self.log.info(
+                f"here is the method: {method}, leader address: {self.leaders_address} mine is {msg_from}"
+            )
+            if self.mode == ServerMode.FOLLOWER and msg_from != self.leaders_address:
                 if method in ["create", "modify", "delete"]:
                     # TODO: need to add who_is_leader + register_and_sync when election
                     return {
@@ -277,6 +285,7 @@ class Server:
         ident = self.persistence.create(**params)
         if ident is None:
             return {"method": method, "status": "failure"}
+        self.reverse_sync(method, params)
         return {"method": method, "status": "success", "ident": ident}
 
     def _delete(self, method: str, params: dict) -> dict:
@@ -284,6 +293,7 @@ class Server:
         if not valid:
             return {"method": method, "status": "failure", "error": msg}
         self.persistence.delete(**params)
+        self.reverse_sync(method, params)
         return {"method": method, "status": "success"}
 
     def _modify(self, method: str, params: dict) -> dict:
@@ -293,6 +303,7 @@ class Server:
         ident = self.persistence.modify(**params)
         if ident is None:
             return {"method": method, "status": "failure"}
+        self.reverse_sync(method, params)
         return {"method": method, "status": "success", "ident": ident}
 
     def _get_event(self, method: str, params: dict) -> dict:
@@ -370,13 +381,48 @@ class Server:
                 return False, f"{method} requires the parameter port"
         return True, ""
 
-    def reverse_sync(self) -> None:
+    def reverse_sync(self, method: str, params: Dict) -> None:
         # TODO: this spawns _sync as a daemon thread in the background
-        ...
+        self.log.info("starting here ")
+        self.log.info(f"{method}, {params}")
+        t = threading.Thread(
+            target=self._sync,
+            args=(
+                method,
+                params,
+                # Current Idea: leader has whole view of system, any new peers that join after this broadcast will already be sending a full sync to the leader either way
+                self.followers.copy(),
+            ),
+        )
+        t.start()
+        self.threads.append(t)
 
-    def _sync(self) -> None:
+    def _sync(self, method: str, params: Dict, followers: List) -> None:
         # TODO: pings all known peers in the system with the updated logical clock + CRUD operation
-        ...
+        for host, port in followers:
+            self.log.info(
+                f"{host}:{port} -> sending packet please work {method}\n\t{params}"
+            )
+            try:
+                with Client(
+                    self.server_name,
+                    host=host,
+                    port=port,
+                    own_port=self.port,
+                    own_host=self.host,
+                ) as client:
+                    self.log.info(
+                        f"This is the method here {method}, {host}, {port}, {self.port}, {self.host}"
+                    )
+                    if method == "create":
+                        client.create(**params)
+                    elif method == "modify":
+                        client.modify(**params)
+                    elif method == "delete":
+                        client.delete(**params)
+            except Exception as e:
+                self.log.info(f"Failed to send resync to {host}:{port}")
+                self.log.info("here is the expection ", e)
 
     def _close_client_socket(self, fileno: int) -> None:
         """Close file descriptor socket gracefully"""

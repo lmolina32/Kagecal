@@ -101,6 +101,7 @@ class Peer:
         # Staring off the network
         if not peer_list:
             server.mode = ServerMode.LEADER
+            server.leaders_address = (self.own_host, self.own_port)
             self.log.info(f"{self.peer_name} is the leader")
             return server
 
@@ -108,7 +109,13 @@ class Peer:
         for host, port, name in peer_list:
             self.log.info(f"Attempting connection with {name}, {host}:{port}")
             try:
-                with Client(client_name=self.peer_name, host=host, port=port) as client:
+                with Client(
+                    client_name=self.peer_name,
+                    host=host,
+                    port=port,
+                    own_host=self.own_host,
+                    own_port=self.own_port,
+                ) as client:
                     # TODO: replacing entire calendar state, could be done another way doing a diff of the calendar
                     leader_host, leader_port = client.who_is_leader()
                     server.leaders_address = (leader_host, leader_port)
@@ -131,6 +138,8 @@ class Peer:
                 client_name=self.peer_name,
                 host=server.leaders_address[0],
                 port=server.leaders_address[1],
+                own_host=self.own_host,
+                own_port=self.own_port,
             ) as client:
                 # current idea: have leader return logical clock, leader calendar, set the logical clock + leaders calendar
                 # idea -> do i expose the persistence calendar a level up, e.g declare it on this module, then pass it down to the server, e.g have the same object in memory but can operate on it without doing self.sever.persistence.

@@ -22,10 +22,14 @@ class Client:
     MAX_BACKOFF = 128
     MAX_RETRIES = 4
 
-    def __init__(self, client_name: str, host: str, port: int):
+    def __init__(
+        self, client_name: str, host: str, port: int, own_host: str, own_port: int
+    ):
         self.client_name: str = client_name
         self.host: str = host
         self.port: int = port
+        self.own_host: str = own_host
+        self.own_port: int = own_port
         self.backoff: int = 1
         self.socket_backoff: int = 0
         self.log = logging.getLogger(__name__)
@@ -100,12 +104,16 @@ class Client:
                 "location": location,
                 "repeats": repeats,
             },
+            "from": (self.host, self.port),
         }
+        self.log.info(send_msg)
         msg = self._serialize_data(send_msg)
         return self._connect_to_server(msg)
 
     def delete(self, ident: int) -> None:
-        send_msg = {"method": "delete", "params": {"ident": ident}}
+        send_msg = {"method": "delete", "params": {"ident": ident},
+            "from": (self.host, self.port),
+                    }
         msg = self._serialize_data(send_msg)
         return self._connect_to_server(msg)
 
@@ -130,22 +138,33 @@ class Client:
                 "location": location,
                 "repeats": repeats,
             },
+            "from": (self.host, self.port),
         }
         msg = self._serialize_data(send_msg)
         return self._connect_to_server(msg)
 
     def get_event(self, ident: int) -> Event:
-        send_msg = {"method": "get_event", "params": {"ident": ident}}
+        send_msg = {
+            "method": "get_event",
+            "params": {"ident": ident},
+            "from": (self.host, self.port),
+        }
         msg = self._serialize_data(send_msg)
         return self._connect_to_server(msg)
 
     def list_events(self) -> list[Event]:
-        send_msg = {"method": "list_events"}
+        send_msg = {
+            "method": "list_events",
+            "from": (self.host, self.port),
+        }
         msg = self._serialize_data(send_msg)
         return self._connect_to_server(msg)
 
     def who_is_leader(self) -> Tuple[str, int]:
-        send_msg = {"method": "who_is_leader"}
+        send_msg = {
+            "method": "who_is_leader",
+            "from": (self.host, self.port),
+        }
         msg = self._serialize_data(send_msg)
         return self._connect_to_server(msg)
 
@@ -153,6 +172,7 @@ class Client:
         send_msg = {
             "method": "register_and_sync",
             "params": {"host": host, "port": port},
+            "from": (self.host, self.port),
         }
         msg = self._serialize_data(send_msg)
         return self._connect_to_server(msg)
@@ -289,7 +309,22 @@ def main() -> None:
                 location="",
                 description="",
             )
-            # client.delete(id)
+            client.delete(id)
+            id = client.create(
+                f"progress report{i}",
+                start=now_utc,
+                end=one_hour_later,
+                location="",
+                description="",
+            )
+            client.modify(
+                id,
+                f"progress report{i}",
+                start=now_utc,
+                end=one_hour_later,
+                location=str(i),
+                description=str(i),
+            )
 
 
 if __name__ == "__main__":
