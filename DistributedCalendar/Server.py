@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+from __future__ import annotations
+
 import sys
 import json
 import socket
@@ -8,7 +10,7 @@ import pickle
 import logging
 import threading
 from enum import Enum
-from typing import Optional, Tuple, List, Dict
+from typing import Optional, Tuple, List, Dict, Callable
 
 from .Calendar import Calendar, Repeats, Event
 from .PersistantCalendar import PersistantHashTable
@@ -60,6 +62,15 @@ class Server:
         self.followers: List[Tuple[int, str]] = []
         self.mode: ServerMode = ServerMode.FOLLOWER
         self.leaders_address: Tuple[int, str] = ("", 0)
+        self.map_to_method: Dict[str, Callable[[str, Dict], Dict]] = {
+            "create": self._create,
+            "delete": self._delete,
+            "modify": self._modify,
+            "get_event": self._get_event,
+            "list_events": self._list_events,
+            "who_is_leader": self._who_is_leader,
+            "register_and_sync": self._register_and_sync,
+        }
         # self.logical_clock: int = self.persistence.logical_clock
 
     def start(self) -> None:
@@ -257,81 +268,84 @@ class Server:
         try:
             method = request.get("method", "")
             params = request.get("params", {})
-            match method:
-                case "create":
-                    valid, msg = self._validate_rpc(method, params)
-                    if not valid:
-                        return {"method": method, "status": "failure", "error": msg}
-                    ident = self.persistence.create(**params)
-                    if ident is None:
-                        return {"method": method, "status": "failure"}
-                    return {"method": method, "status": "success", "ident": ident}
-                case "delete":
-                    valid, msg = self._validate_rpc(method, params)
-                    if not valid:
-                        return {"method": method, "status": "failure", "error": msg}
-                    ident = request.get("ident")
-                    self.persistence.delete(**params)
-                    return {"method": method, "status": "success"}
-                case "modify":
-                    valid, msg = self._validate_rpc(method, params)
-                    if not valid:
-                        return {"method": method, "status": "failure", "error": msg}
-                    ident = self.persistence.modify(**params)
-                    if ident is None:
-                        return {"method": method, "status": "failure"}
-                    return {"method": method, "status": "success", "ident": ident}
-                case "get_event":
-                    valid, msg = self._validate_rpc(method, params)
-                    if not valid:
-                        return {"method": method, "status": "failure", "error": msg}
-                    event = self.persistence.get_event(**params)
-                    if event is None:
-                        return {"method": method, "status": "failure"}
-                    return {"method": method, "status": "success", "event": event}
-                case "list_events":
-                    return {
-                        "method": method,
-                        "status": "success",
-                        "calendar": self.persistence.list_events(),
-                    }
-                case "who_is_leader":
-                    if self.mode == ServerMode.LEADER:
-                        return {
-                            "method": method,
-                            "status": "success",
-                            "host": self.host,
-                            "port": self.port,
-                        }
-                    else:
-                        return {
-                            "method": method,
-                            "status": "success",
-                            "host": self.leaders_address[0],
-                            "port": self.leaders_address[1],
-                        }
-                case "register_and_sync":
-                    valid, msg = self._validate_rpc(method, params)
-                    if not valid:
-                        return {"method": method, "status": "failure", "error": msg}
-                    self.followers.append((params["host"], params["port"]))
-                    self.log.info(
-                        f"adding {params["host"]}:{params["port"]} to know peers"
-                    )
-                    return {
-                        "method": method,
-                        "status": "success",
-                        "logical_clock": self.persistence.logical_clock,
-                        "calendar": self.persistence.list_events(),
-                    }
-                case _:
-                    self.log.info(
-                        f"Unknown method from {self.client_addresses[fileno]}"
-                    )
-                    return {"status": "failure", "error": "error: Unrecognized method"}
+            func = self.map_to_method.get(method, None)
+            if func is None:
+                self.log.info(f"Unknown method from {self.client_addresses[fileno]}")
+                return {"status": "failure", "error": "error: Unrecognized method"}
+            return func(method, params)
         except Exception as e:
             self.log.error(f"{e}")
             return {"status": "failure", "error": str(e)}
+
+    def _create(self, method: str, params: Dict) -> Dict:
+        valid, msg = self._validate_rpc(method, params)
+        if not valid:
+            return {"method": method, "status": "failure", "error": msg}
+        ident = self.persistence.create(**params)
+        if ident is None:
+            return {"method": method, "status": "failure"}
+        return {"method": method, "status": "success", "ident": ident}
+
+    def _delete(self, method: str, params: Dict) -> Dict:
+        valid, msg = self._validate_rpc(method, params)
+        if not valid:
+            return {"method": method, "status": "failure", "error": msg}
+        self.persistence.delete(**params)
+        return {"method": method, "status": "success"}
+
+    def _modify(self, method: str, params: Dict) -> Dict:
+        valid, msg = self._validate_rpc(method, params)
+        if not valid:
+            return {"method": method, "status": "failure", "error": msg}
+        ident = self.persistence.modify(**params)
+        if ident is None:
+            return {"method": method, "status": "failure"}
+        return {"method": method, "status": "success", "ident": ident}
+
+    def _get_event(self, method: str, params: Dict) -> Dict:
+        valid, msg = self._validate_rpc(method, params)
+        if not valid:
+            return {"method": method, "status": "failure", "error": msg}
+        event = self.persistence.get_event(**params)
+        if event is None:
+            return {"method": method, "status": "failure"}
+        return {"method": method, "status": "success", "event": event}
+
+    def _list_events(self, method: str, params: Dict) -> Dict:
+        return {
+            "method": method,
+            "status": "success",
+            "calendar": self.persistence.list_events(),
+        }
+
+    def _who_is_leader(self, method: str, params: Dict) -> Dict:
+        if self.mode == ServerMode.LEADER:
+            return {
+                "method": method,
+                "status": "success",
+                "host": self.host,
+                "port": self.port,
+            }
+        else:
+            return {
+                "method": method,
+                "status": "success",
+                "host": self.leaders_address[0],
+                "port": self.leaders_address[1],
+            }
+
+    def _register_and_sync(self, method: str, params: Dict) -> Dict:
+        valid, msg = self._validate_rpc(method, params)
+        if not valid:
+            return {"method": method, "status": "failure", "error": msg}
+        self.followers.append((params["host"], params["port"]))
+        self.log.info(f"adding {params["host"]}:{params["port"]} to know peers")
+        return {
+            "method": method,
+            "status": "success",
+            "logical_clock": self.persistence.logical_clock,
+            "calendar": self.persistence.list_events(),
+        }
 
     def _validate_rpc(
         self, method: str, params: dict[str, str | int | Repeats | None]
