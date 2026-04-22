@@ -62,6 +62,7 @@ class Server:
         self.followers: List[Tuple[int, str]] = []
         self.mode: ServerMode = ServerMode.FOLLOWER
         self.leaders_address: Tuple[int, str] = ("", 0)
+
         self.map_to_method: Dict[str, Callable[[str, Dict], Dict]] = {
             "create": self._create,
             "delete": self._delete,
@@ -268,6 +269,13 @@ class Server:
         try:
             method = request.get("method", "")
             params = request.get("params", {})
+            if self.mode == ServerMode.FOLLOWER:
+                if method in ["create", "modify", "delete"]:
+                    # TODO: need to add who_is_leader + register_and_sync when election
+                    return {
+                        "Status": "failure",
+                        "error": "Not the leader, send all requests to elader",
+                    }
             func = self.map_to_method.get(method, None)
             if func is None:
                 self.log.info(f"Unknown method from {self.client_addresses[fileno]}")
@@ -376,6 +384,14 @@ class Server:
             if params.get("port", None) is None:
                 return False, f"{method} requires the parameter port"
         return True, ""
+
+    def reverse_sync(self) -> None:
+        # TODO: this spawns _sync as a daemon thread in the background
+        ...
+
+    def _sync(self) -> None:
+        # TODO: pings all known peers in the system with the updated logical clock + CRUD operation
+        ...
 
     def _close_client_socket(self, fileno: int) -> None:
         """Close file descriptor socket gracefully"""
