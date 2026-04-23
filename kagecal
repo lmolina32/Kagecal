@@ -1,10 +1,17 @@
 #!/usr/bin/env python3
+"""kagacal
+A shell utility that provides a simple interface for managing kagecal decentralized calendars.
+"""
 
-import sys
-from DistributedCalendar import Peer, Calendar, Event, Day
+from DistributedCalendar import Peer, Calendar, Event, Day, Repeats
+from dataclasses import astuple
 from typing import Optional
 from collections import namedtuple
-from datetime import datetime
+from datetime import datetime, timezone
+from tabulate import tabulate
+import sys
+import os
+import pickle
 
 # parser = argparse.ArgumentParser()
 # parser.add_argument(
@@ -31,35 +38,40 @@ class Application:
             "join":   Command(self._join,   "join    calendar     Join a calendar with the given calendar name."),
             "list":   Command(self._list,   "list                 List all events in the calendar."),
             "create": Command(self._create, "create               Interactively create a new calendar event."),
-            "remove": Command(self._remove, "remove  event        Delete a calendar event with a given name."),
-            "modify": Command(self._modify, "modify  event        Interactively modify a calendar event with a given name."),
-            "show":   Command(self._show,   "show    event        Display details of event with a given name."),
-            "switch": Command(self._create,   "switch  calendar     Switch the currently active calendar."),
+            "remove": Command(self._remove, "remove  event        Delete a calendar event with a given id."),
+            "modify": Command(self._modify, "modify  event        Interactively modify a calendar event with a given id."),
+            "show":   Command(self._show,   "show    event        Display details of event with a given id."),
+            "dump":   Command(self._dump,   "dump    event file   Write an event with a given id to a file."),
+            "switch": Command(self._create, "switch  calendar     Switch the currently active calendar."),
         }
         # fmt: on
 
-        # In the actual implementation, the Peer will have the master list of calendars.
-        self.calendars = {}
-        self.curr_callendar = None
+        # In the actual implementation, we would have a dicionary of Peers that each manage one calendar.
+        self.calendars: dict[str, Calendar] = {}
+        # self.calendars: dict[str, Peer] = {}
+        self.curr_calendar: Optional[Calendar] = None
 
         # TODO: Maybe the application should attempt to rejoin calendars
 
     def perform(self, command: str, args: Optional[list[str]]):
-        if command in {"join", "remove", "modify", "show"} and (
-            args is None or len(args) != 1
-        ):
+        if (
+            command in {"join", "remove", "modify", "show", "switch"}
+            and (args is None or len(args) != 1)
+        ) or (command == "dump" and (args is None or len(args) != 2)):
             print("Usage: " + self.COMMANDS[command].usage)
             return
 
         # fmt: off
         match command:
             case "help" | "?":  self._help(args)
-            case "join":        self._local_join(args) #self._join(*args)
+            case "join":        self._local_join(*args) #self._join(*args)
             case "list":        self._list()
-            case "create":      self._create()
+            case "create":      self._create(args)
             case "remove":      self._remove(*args)
             case "modify":      self._modify(*args)
             case "show":        self._show(*args)
+            case "dump":        self._dump(*args)
+            case "switch":      self._switch(*args)
             case _:             print(f"Unknown command: {command}")
         # fmt: on
 
@@ -75,22 +87,51 @@ class Application:
             print(f"Already joined calendar {calendar}")
             return
 
-        self.calendars["calendar_name"] = Calendar()
-        self.curr_callendar = "calendar_name"
+        self.calendars[calendar_name] = Calendar()
+        self.curr_calendar = calendar_name
 
-        pass
+    def _list(self):
+        cal = self.calendars[self.curr_calendar]
+        events = cal.list_events()
+        headers = ["Identifier", "Event Name", "Starts", "Ends", "Description"]
+        data = []
+        for ident, event in events.items():
+            start = datetime.fromtimestamp(event.start, tz=timezone.utc)
+            start_str = start.strftime("%m-%d-%Y %H:%M:%S")
+            end = datetime.fromtimestamp(event.end, tz=timezone.utc)
+            end_str = end.strftime("%m-%d-%Y %H:%M:%S")
+            data.append((ident, event.name, start_str, start_str, event.description))
+        print(tabulate(data, headers=headers))
 
-    def _list(self, args: list[str]):
-
-        pass
-
-    def _create(self, args: list[str]):
-
+    def _create(self, args):
+        event = None
         try:
-            event = self._get_event_input()
-        except KeyboardInterrupt:
-            pass
-        print("Cancelled.")
+            while args:
+                arg = args.pop(0)
+                if arg == "-f":
+                    path = args.pop(0)
+                    event = self._load_event_file(path)
+                    if event:
+                        break
+                    else:
+                        return
+        except IndexError:
+            print("Usage: " + self.COMMANDS["create"].usage)
+            return
+
+        if not self.curr_calendar:
+            print("Cannot create an event before first joining a calendar.")
+            return
+
+        if not event:
+            try:
+                event = self._get_event_input()
+            except KeyboardInterrupt:
+                print("\nCancelled.")
+                return
+
+        cal = self.calendars[self.curr_calendar]
+        cal.create(*astuple(event))
 
     def _remove(self, args: list[str]):
         pass
@@ -101,45 +142,39 @@ class Application:
     def _show(self, args: list[str]):
         pass
 
+    def _dump(self, event, file):
+        cal = self.calendars[self.curr_calendar]
+        event = cal.get_event(int(event))
+        if not event:
+            print(f"No event in calendar {self.curr_calendar} with id {event}.")
+        with open(file, "wb") as outfile:
+            pickle.dump(event, outfile)
+
     def _switch(self, calendar: str):
         if calendar in self.calendars:
-            self.curr_callendar = calendar
+            self.curr_calendar = calendar
         else:
             print(f"Cannot switch to calendar {calendar} that has not been joined.")
 
     def _get_event_input(self) -> Event:
         """This method is unholy. Forgive me."""
-        (
-            name,
-            start,
-            end,
-            description,
-            location,
-            is_repeating,
-            repeats_starting,
-            repeats_until,
-        ) = (None, None, None, None, None, None, None, None)
         while True:
-            if name is None:
-                name = input("Event name: ")
-            if start is None:
-                start_str = input("Event start [mm-dd-yyyy hh:mm:ss]: ")
-                try:
-                    dt_object = datetime.strptime(start_str, "%Y-%m-%d %H:%M:%S")
-                except ValueError:
-                    print("Invalid format.")
-                    continue
-                start = dt_object.timestamp()
-            if end is None:
-                end_str = input("Event end [mm-dd-yyyy hh:mm:ss]: ")
-                try:
-                    dt_object = datetime.strptime(end_str, "%Y-%m-%d %H:%M:%S")
-                except ValueError:
-                    print("Invalid format.")
-                    continue
-                end = dt_object.timestamp()
-            if description is None:
-                description = input("Event description?: ")
+            name = input("Event name: ")
+            start_str = input("Event start [mm-dd-yyyy hh:mm:ss]: ")
+            try:
+                dt_object = datetime.strptime(start_str, "%m-%d-%Y %H:%M:%S")
+            except ValueError:
+                print("Invalid format.")
+                continue
+            start = dt_object.timestamp()
+            end_str = input("Event end [mm-dd-yyyy hh:mm:ss]: ")
+            try:
+                dt_object = datetime.strptime(end_str, "%m-%d-%Y %H:%M:%S")
+            except ValueError:
+                print("Invalid format.")
+                continue
+            end = dt_object.timestamp()
+            description = input("Event description?: ")
             location = input("Event location?: ")
             while True:
                 is_repeating = input("Does this event repeat? [y/N]: ").lower()
@@ -147,30 +182,76 @@ class Application:
                     break
             if is_repeating in {"y", "yes"}:
                 while True:
-                    repeats_every = input(
+                    repeats_every_str = input(
                         "Repeats every [mon/tue/wed/thu/fri/sat/sun, space seperated]: "
                     )
-                    days = set()
-                    for day in repeats_every.lower().split():
+                    repeats_every = set()
+                    for day in repeats_every_str.lower().split():
                         # fmt: off
                         match day: 
-                            case "mon": days.add(Day.MONDAY)
-                            case "tue": days.add(Day.TUESDAY)
-                            case "wed": days.add(Day.WEDNESDAY)
-                            case "thu": days.add(Day.THURSDAY)
-                            case "fri": days.add(Day.FRIDAY)
-                            case "sat": days.add(Day.SATURDAY)
-                            case "sun": days.add(Day.SUNDAY)
+                            case "mon": repeats_every.add(Day.MONDAY)
+                            case "tue": repeats_every.add(Day.TUESDAY)
+                            case "wed": repeats_every.add(Day.WEDNESDAY)
+                            case "thu": repeats_every.add(Day.THURSDAY)
+                            case "fri": repeats_every.add(Day.FRIDAY)
+                            case "sat": repeats_every.add(Day.SATURDAY)
+                            case "sun": repeats_every.add(Day.SUNDAY)
                             case _: 
                                 print("Invalid day input.")
-                                days.clear()
+                                repeats_every.clear()
                                 break
                         # fmt: on
-                    if days:
+                    if repeats_every:
                         break
+                repeats_starting_str = input("Repeats starting: [MM/DD/YYYY]")
+                try:
+                    dt_object = datetime.strptime(repeats_starting_str, "%m-%d-%Y")
+                except ValueError:
+                    print("Invalid format.")
+                    continue
+                repeats_starting = dt_object.timestamp()
+                repeats_until_str = input("Repeats until: [MM/DD/YYYY]")
+                try:
+                    dt_object = datetime.strptime(repeats_until_str, "%m-%d-%Y")
+                except ValueError:
+                    print("Invalid format.")
+                    continue
+                repeats_until = dt_object.timestamp()
 
-                repeats_starting = input("Repeats starting: [MM/DD/YYYY]")
-                repeats_until = input("Repeats until: [MM/DD/YYYY]")
+            event = Event(
+                name,
+                start,
+                end,
+                description or None,
+                location or None,
+                (
+                    Repeats(repeats_every, repeats_starting, repeats_until)
+                    if is_repeating
+                    else None
+                ),
+            )
+
+            try:
+                event.validate_event()
+            except ValueError as e:
+                print(f"Invalid format: {e}")
+                continue
+            return event
+
+    def _load_event_file(self, fp: str) -> Optional[Event]:
+        try:
+            with open(fp, "rb") as eventfile:
+                event = pickle.load(eventfile)
+            event.validate_event()
+            return event
+        except FileNotFoundError as e:
+            print(e)
+        except pickle.UnpicklingError as e:
+            print(e)
+        except ValueError as e:
+            print(e)
+
+        return None
 
     def _help(self, args):
         match len(args):
@@ -196,7 +277,7 @@ def main() -> int:
             command, *args = line.split()
             app.perform(command, args)
         except KeyboardInterrupt:
-            print('Type "help" to print commands, or press CTRL-D to exit.')
+            print('\nType "help" to print commands, or press CTRL-D to exit.')
             continue
         except EOFError:
             return 0

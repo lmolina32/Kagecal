@@ -69,7 +69,7 @@ class Event:
             )
         )
 
-    def _validate_event(self, event: Event):
+    def validate_event(self):
         """Checks if an event is consistent with the following invariants:
         - Start time is less than or equal to end time
         - name is bounded at 1KiB
@@ -78,18 +78,15 @@ class Event:
         - Repeats.repeats_starting is less than or equal to Repeats.repeats_until
         """
 
-        if event.start >= event.end:
+        if self.start >= self.end:
             raise ValueError("End time cannot be before start time.")
-        if len(event.name) > (1 << 10):
+        if len(self.name) > (1 << 10):
             raise ValueError("Event name must be less than 1K characters.")
-        if event.description and len(event.description) > (1 << 13):
+        if self.description and len(self.description) > (1 << 13):
             raise ValueError("Event description must be less than 8K characters.")
-        if event.location and len(event.location) > (1 << 10):
+        if self.location and len(self.location) > (1 << 10):
             raise ValueError("Event location must be less than 1K characters.")
-        if (
-            event.repeats
-            and event.repeats.repeats_starting >= event.repeats.repeats_until
-        ):
+        if self.repeats and self.repeats.repeats_starting >= self.repeats.repeats_until:
             raise ValueError("Repeat end date cannot be before repeat start date.")
 
 
@@ -112,7 +109,7 @@ class Calendar:
         event = Event(name, start, end, description, location, repeats)
 
         try:
-            self._validate_event(event)
+            event.validate_event()
         except ValueError:
             return None
 
