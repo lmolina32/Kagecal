@@ -1,0 +1,206 @@
+#!/usr/bin/env python3
+
+import sys
+from DistributedCalendar import Peer, Calendar, Event, Day
+from typing import Optional
+from collections import namedtuple
+from datetime import datetime
+
+# parser = argparse.ArgumentParser()
+# parser.add_argument(
+#     "--calendar-project",
+#     help="The specific calendar you intend to subscribe to",
+#     required=True,
+# )
+# parser.add_argument(
+#     "--peer-name", help="the peer name you want to register as", required=True
+# )
+# args = parser.parse_args()
+
+# peer = Peer(calendar_name=args.calendar_project, peer_name=args.peer_name)
+# peer.run()
+
+Command = namedtuple("Command", ["method", "usage"])
+
+
+class Application:
+
+    def __init__(self):
+        # fmt: off
+        self.COMMANDS: dict[str, Command] = {
+            "join":   Command(self._join,   "join    calendar     Join a calendar with the given calendar name."),
+            "list":   Command(self._list,   "list                 List all events in the calendar."),
+            "create": Command(self._create, "create               Interactively create a new calendar event."),
+            "remove": Command(self._remove, "remove  event        Delete a calendar event with a given name."),
+            "modify": Command(self._modify, "modify  event        Interactively modify a calendar event with a given name."),
+            "show":   Command(self._show,   "show    event        Display details of event with a given name."),
+            "switch": Command(self._create,   "switch  calendar     Switch the currently active calendar."),
+        }
+        # fmt: on
+
+        # In the actual implementation, the Peer will have the master list of calendars.
+        self.calendars = {}
+        self.curr_callendar = None
+
+        # TODO: Maybe the application should attempt to rejoin calendars
+
+    def perform(self, command: str, args: Optional[list[str]]):
+        if command in {"join", "remove", "modify", "show"} and (
+            args is None or len(args) != 1
+        ):
+            print("Usage: " + self.COMMANDS[command].usage)
+            return
+
+        # fmt: off
+        match command:
+            case "help" | "?":  self._help(args)
+            case "join":        self._local_join(args) #self._join(*args)
+            case "list":        self._list()
+            case "create":      self._create()
+            case "remove":      self._remove(*args)
+            case "modify":      self._modify(*args)
+            case "show":        self._show(*args)
+            case _:             print(f"Unknown command: {command}")
+        # fmt: on
+
+    def _join(self, calendar_name: str):
+        # TODO: Join decentralized calendar nodes
+
+        pass
+
+    def _local_join(self, calendar_name: str):
+        """Joins a local calendar as opposed to a decentralized calendar. This is for testing the user interface while the decentralized version is still under development. Most of this code should be portable to the _join method."""
+
+        if calendar_name in self.calendars:
+            print(f"Already joined calendar {calendar}")
+            return
+
+        self.calendars["calendar_name"] = Calendar()
+        self.curr_callendar = "calendar_name"
+
+        pass
+
+    def _list(self, args: list[str]):
+
+        pass
+
+    def _create(self, args: list[str]):
+
+        try:
+            event = self._get_event_input()
+        except KeyboardInterrupt:
+            pass
+        print("Cancelled.")
+
+    def _remove(self, args: list[str]):
+        pass
+
+    def _modify(self, args: list[str]):
+        pass
+
+    def _show(self, args: list[str]):
+        pass
+
+    def _switch(self, calendar: str):
+        if calendar in self.calendars:
+            self.curr_callendar = calendar
+        else:
+            print(f"Cannot switch to calendar {calendar} that has not been joined.")
+
+    def _get_event_input(self) -> Event:
+        """This method is unholy. Forgive me."""
+        (
+            name,
+            start,
+            end,
+            description,
+            location,
+            is_repeating,
+            repeats_starting,
+            repeats_until,
+        ) = (None, None, None, None, None, None, None, None)
+        while True:
+            if name is None:
+                name = input("Event name: ")
+            if start is None:
+                start_str = input("Event start [mm-dd-yyyy hh:mm:ss]: ")
+                try:
+                    dt_object = datetime.strptime(start_str, "%Y-%m-%d %H:%M:%S")
+                except ValueError:
+                    print("Invalid format.")
+                    continue
+                start = dt_object.timestamp()
+            if end is None:
+                end_str = input("Event end [mm-dd-yyyy hh:mm:ss]: ")
+                try:
+                    dt_object = datetime.strptime(end_str, "%Y-%m-%d %H:%M:%S")
+                except ValueError:
+                    print("Invalid format.")
+                    continue
+                end = dt_object.timestamp()
+            if description is None:
+                description = input("Event description?: ")
+            location = input("Event location?: ")
+            while True:
+                is_repeating = input("Does this event repeat? [y/N]: ").lower()
+                if is_repeating in {"y", "yes", "n", "no", ""}:
+                    break
+            if is_repeating in {"y", "yes"}:
+                while True:
+                    repeats_every = input(
+                        "Repeats every [mon/tue/wed/thu/fri/sat/sun, space seperated]: "
+                    )
+                    days = set()
+                    for day in repeats_every.lower().split():
+                        # fmt: off
+                        match day: 
+                            case "mon": days.add(Day.MONDAY)
+                            case "tue": days.add(Day.TUESDAY)
+                            case "wed": days.add(Day.WEDNESDAY)
+                            case "thu": days.add(Day.THURSDAY)
+                            case "fri": days.add(Day.FRIDAY)
+                            case "sat": days.add(Day.SATURDAY)
+                            case "sun": days.add(Day.SUNDAY)
+                            case _: 
+                                print("Invalid day input.")
+                                days.clear()
+                                break
+                        # fmt: on
+                    if days:
+                        break
+
+                repeats_starting = input("Repeats starting: [MM/DD/YYYY]")
+                repeats_until = input("Repeats until: [MM/DD/YYYY]")
+
+    def _help(self, args):
+        match len(args):
+            case 0:
+                print("=== Help ===")
+                for _, usage in self.COMMANDS.values():
+                    print(usage)
+                print("Press CTRL-D to exit.\n")
+            case 1:
+                if args[0] in self.COMMANDS:
+                    print(self.COMMANDS[args[0]].usage)
+                else:
+                    print(f"Unknown command: {args[0]}")
+            case _:
+                print("Usage: help [command]")
+
+
+def main() -> int:
+    app = Application()
+    while True:
+        try:
+            line = input("kagecal> ")
+            command, *args = line.split()
+            app.perform(command, args)
+        except KeyboardInterrupt:
+            print('Type "help" to print commands, or press CTRL-D to exit.')
+            continue
+        except EOFError:
+            return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
