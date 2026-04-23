@@ -4,6 +4,7 @@ from typing import Optional
 from dataclasses import dataclass
 
 
+# TODO: This would be more efficient as a bitset
 class Day(Enum):
     SUNDAY = 1
     MONDAY = 2
@@ -68,6 +69,29 @@ class Event:
             )
         )
 
+    def _validate_event(self, event: Event):
+        """Checks if an event is consistent with the following invariants:
+        - Start time is less than or equal to end time
+        - name is bounded at 1KiB
+        - description is bounded at 8KiB
+        - location is bounded at 1KiB
+        - Repeats.repeats_starting is less than or equal to Repeats.repeats_until
+        """
+
+        if event.start >= event.end:
+            raise ValueError("End time cannot be before start time.")
+        if len(event.name) > (1 << 10):
+            raise ValueError("Event name must be less than 1K characters.")
+        if event.description and len(event.description) > (1 << 13):
+            raise ValueError("Event description must be less than 8K characters.")
+        if event.location and len(event.location) > (1 << 10):
+            raise ValueError("Event location must be less than 1K characters.")
+        if (
+            event.repeats
+            and event.repeats.repeats_starting >= event.repeats.repeats_until
+        ):
+            raise ValueError("Repeat end date cannot be before repeat start date.")
+
 
 class Calendar:
 
@@ -87,7 +111,9 @@ class Calendar:
 
         event = Event(name, start, end, description, location, repeats)
 
-        if not self._validate_event(event):
+        try:
+            self._validate_event(event)
+        except ValueError:
             return None
 
         identifier = hash(event)
@@ -129,25 +155,3 @@ class Calendar:
     def search_events(self):
         """Searches calendar for events that match description"""
         ...
-
-    def _validate_event(self, event: Event) -> bool:
-        """Checks if an event is consistent with the following invariants:
-        - Start time is less than or equal to end time
-        - name is bounded at 1KiB
-        - description is bounded at 8KiB
-        - location is bounded at 1KiB
-        - Repeats.repeats_starting is less than or equal to Repeats.repeats_until
-        """
-        if (
-            event.start >= event.end
-            or len(event.name) > (1 << 10)
-            or (event.description and len(event.description) > (1 << 13))
-            or (event.location and len(event.location) > (1 << 10))
-            or (
-                event.repeats
-                and event.repeats.repeats_starting >= event.repeats.repeats_until
-            )
-        ):
-            return False
-
-        return True
