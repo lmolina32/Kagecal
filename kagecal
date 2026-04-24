@@ -9,23 +9,10 @@ from typing import Optional
 from collections import namedtuple
 from datetime import datetime, timezone
 from tabulate import tabulate
+import selectors
 import sys
 import os
 import pickle
-
-# parser = argparse.ArgumentParser()
-# parser.add_argument(
-#     "--calendar-project",
-#     help="The specific calendar you intend to subscribe to",
-#     required=True,
-# )
-# parser.add_argument(
-#     "--peer-name", help="the peer name you want to register as", required=True
-# )
-# args = parser.parse_args()
-
-# peer = Peer(calendar_name=args.calendar_project, peer_name=args.peer_name)
-# peer.run()
 
 Command = namedtuple("Command", ["method", "usage"])
 
@@ -37,7 +24,7 @@ class Application:
         self.COMMANDS: dict[str, Command] = {
             "join":   Command(self._join,   "join    calendar     Join a calendar with the given calendar name."),
             "list":   Command(self._list,   "list                 List all events in the calendar."),
-            "create": Command(self._create, "create               Interactively create a new calendar event."),
+            "create": Command(self._create, "create  [-f path]    Interactively create a new calendar event or import event from file."),
             "remove": Command(self._remove, "remove  event        Delete a calendar event with a given id."),
             "modify": Command(self._modify, "modify  event        Interactively modify a calendar event with a given id."),
             "show":   Command(self._show,   "show    event        Display details of event with a given id."),
@@ -93,14 +80,14 @@ class Application:
     def _list(self):
         cal = self.calendars[self.curr_calendar]
         events = cal.list_events()
-        headers = ["Identifier", "Event Name", "Starts", "Ends", "Description"]
+        headers = ["ID", "Event Name", "Starts", "Ends", "Description"]
         data = []
         for ident, event in events.items():
             start = datetime.fromtimestamp(event.start, tz=timezone.utc)
             start_str = start.strftime("%m-%d-%Y %H:%M:%S")
             end = datetime.fromtimestamp(event.end, tz=timezone.utc)
             end_str = end.strftime("%m-%d-%Y %H:%M:%S")
-            data.append((ident, event.name, start_str, start_str, event.description))
+            data.append((ident, event.name, start_str, end_str, event.description))
         print(tabulate(data, headers=headers))
 
     def _create(self, args):
@@ -133,14 +120,68 @@ class Application:
         cal = self.calendars[self.curr_calendar]
         cal.create(*astuple(event))
 
-    def _remove(self, args: list[str]):
-        pass
+    def _remove(self, ident_str: str):
+        try:
+            ident = int(ident_str)
+        except ValueError:
+            print("Usage: " + self.COMMANDS["remove"].usage)
 
-    def _modify(self, args: list[str]):
-        pass
+        cal = self.calendars[self.curr_calendar]
+        cal.delete(ident)
 
-    def _show(self, args: list[str]):
-        pass
+    def _modify(self, ident_str: str):
+        try:
+            ident = int(ident_str)
+        except ValueError:
+            print("Usage: " + self.COMMANDS["modify"].usage)
+
+        try:
+            new_event = self._get_event_input()
+        except KeyboardInterrupt:
+            print("\nCancelled.")
+            return
+
+        cal = self.calendars[self.curr_calendar]
+        cal.modify(ident, *astuple(new_event))
+
+    def _show(self, ident_str: str):
+        try:
+            ident = int(ident_str)
+        except ValueError:
+            print("Usage: " + self.COMMANDS["show"].usage)
+
+        cal = self.calendars[self.curr_calendar]
+        event = cal.get_event(ident)
+
+        if event is None:
+            print(f"No event in calendar {self.curr_calendar} with ID {ident_str}.")
+            return
+
+        start = datetime.fromtimestamp(event.start, tz=timezone.utc)
+        start_str = start.strftime("%m-%d-%Y %H:%M:%S")
+        end = datetime.fromtimestamp(event.end, tz=timezone.utc)
+        end_str = end.strftime("%m-%d-%Y %H:%M:%S")
+
+        is_repeating = event.repeats is not None
+        print(f" === Event {ident_str} ===")
+        print(f"Event name: {event.name}")
+        print(f"Event description: {event.description or "[ No description ]"}")
+        print(f"Event location: {event.location or "[ No location ]"}")
+
+        if is_repeating:
+            repeats_every = ", ".join(event.repeats.repeats_every)
+            repeats_starting = datetime.fromtimestamp(
+                event.repeats.repeats_starting, tz=timezone.utc
+            )
+            repeats_starting_str = repeats_starting.strftime("%m-%d-%Y %H:%M:%S")
+            repeats_until = datetime.fromtimestamp(
+                event.repeats.repeats_until, tz=timezone.utc
+            )
+            repeats_until_str = repeats_until.strftime("%m-%d-%Y %H:%M:%S")
+            print(f"Repeats every: {repeats_every}")
+            print(f"Repeats starting: {repeats_starting_str}")
+            print(f"Repeats until: {repeats_until_str}")
+        print()
 
     def _dump(self, event, file):
         cal = self.calendars[self.curr_calendar]
