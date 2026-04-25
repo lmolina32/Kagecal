@@ -125,7 +125,7 @@ class Server:
         while b"\n" not in header:
             data = clientsock.recv(self.BUFFER_SIZE)
             if not data:
-                self.log.error(f"Connection broken from {client_address}")
+                self.log.error(f"Connection broken from {clientsock}")
                 self.sock_selector.unregister(clientsock)
                 self._close_socket(clientsock)
                 return
@@ -141,7 +141,7 @@ class Server:
         while read_amt < data_size:
             data = clientsock.recv(self.BUFFER_SIZE)
             if not data:
-                self.log.error(f"Connection broken mid-payload from {client_address}")
+                self.log.error(f"Connection broken mid-payload from {clientsock}")
                 self.sock_selector.unregister(clientsock)
                 self._close_socket(sock)
                 return
@@ -160,28 +160,30 @@ class Server:
         # TODO: add logic, leader does all of the below, follower only allows reads and rejects everything else
         try:
             # TODO: Idea add message_from or from key in dictionary, that has address, if the address is from a leader, receivec by a follower, then you know to add it to your calendar.
-            # pdb.set_trace()
             method = request.get("method", "")
             params = request.get("params", {})
             msg_from = request.get("from", ())
-            self.log.info(
+            self.log.debug(
                 f"here is the method: {method}, leader address: {self.leaders_address} mine is {msg_from}"
             )
             if self.mode == ServerMode.FOLLOWER and msg_from != self.leaders_address:
                 if method in ["create", "modify", "delete"]:
                     # TODO: need to add who_is_leader + register_and_sync when election
-                    return {
-                        "Status": "failure",
-                        "error": "Not the leader, send all requests to leader",
-                    }
-            func = self.RPC_METHODS.get(method, None)
-            if func is None:
-                self.log.info(f"Unknown method {method} from {clientsock}.")
-                return {"status": "failure", "error": "error: Unrecognized method"}
+                    raise PermissionError(
+                        f"This peer is not the leader, send all (create, modify, delete) requests to leader"
+                    )
+            if method not in self.RPC_METHODS:
+                raise ValueError(f"{method} is not a valid RPC method")
+            func = self.RPC_METHODS[method]
             response = func(method, params)
-        except Exception as e:
+        except ValueError | PermissionError as e:
             self.log.error(f"{e}")
-            return {"status": "failure", "error": str(e)}
+            response = {"status": "failure", "error": str(e)}
+        except Exception as e:
+            self.log.warn(
+                f"This should not trigger, if this triggers add exception to block above, this should be delete at the end of development"
+            )
+            response = {"status": "failure", "error": str(e)}
 
         # 3. Send ack.
         self._send_ack(response, clientsock)
@@ -238,41 +240,36 @@ class Server:
             self.stop.wait(self.NAMESERV_KEEPALIVE)
         s.close()
 
+    # TODO: idea we can have each function return a dicitionary of values they want to pass, and then in the rpc_hanlder function, we expect params, then construct the dictionary in the rpc_handler and return it, rather than constructing a dictionary for each RPC event
     def _create(self, method: str, params: dict) -> dict:
-        valid, msg = self._validate_rpc(method, params)
-        if not valid:
-            return {"method": method, "status": "failure", "error": msg}
+        self._validate_rpc(method, params)
         ident = self.persistence.create(**params)
         if ident is None:
-            return {"method": method, "status": "failure"}
+            raise ValueError(f"{method} did not create Event on shared calendar")
         self.reverse_sync(method, params)
         return {"method": method, "status": "success", "ident": ident}
 
     def _delete(self, method: str, params: dict) -> dict:
-        valid, msg = self._validate_rpc(method, params)
-        if not valid:
-            return {"method": method, "status": "failure", "error": msg}
+        self._validate_rpc(method, params)
         self.persistence.delete(**params)
         self.reverse_sync(method, params)
         return {"method": method, "status": "success"}
 
     def _modify(self, method: str, params: dict) -> dict:
-        valid, msg = self._validate_rpc(method, params)
-        if not valid:
-            return {"method": method, "status": "failure", "error": msg}
+        self._validate_rpc(method, params)
         ident = self.persistence.modify(**params)
         if ident is None:
-            return {"method": method, "status": "failure"}
+            raise ValueError(f"{method} did not modify Event on shared calendar")
         self.reverse_sync(method, params)
         return {"method": method, "status": "success", "ident": ident}
 
     def _get_event(self, method: str, params: dict) -> dict:
-        valid, msg = self._validate_rpc(method, params)
-        if not valid:
-            return {"method": method, "status": "failure", "error": msg}
+        self._validate_rpc(method, params)
         event = self.persistence.get_event(**params)
         if event is None:
-            return {"method": method, "status": "failure"}
+            raise ValueError(
+                f"{method} could not find event with identifier in shared calendar"
+            )
         return {"method": method, "status": "success", "event": event}
 
     def _list_events(self, method: str, params: dict) -> dict:
@@ -324,9 +321,9 @@ class Server:
                 raise ValueError(f"{method} requires the parameter end")
 
         if method == "register_and_sync":
-            if params.get("host", None) is None:
+            if "host" not in params:
                 raise ValueError(f"{method} requires the parameter host")
-            if params.get("port", None) is None:
+            if "port" not in params:
                 raise ValueError(f"{method} requires the parameter port")
 
     # TODO: What in tarnation is going on here.
