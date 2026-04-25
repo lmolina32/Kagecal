@@ -88,12 +88,13 @@ class Peer:
         time.sleep(time.time() % random.randint(1, 5))
 
         server = Server(
-            project_name=self.calendar_name,
-            server_name=self.peer_name,
+            calendar_ident=self.calendar_name,
+            peer_ident=self.peer_name,
             ckpt_path=ckpt,
             txn_path=txn,
         )
 
+        self.own_host = server.host
         self.own_port = server.port
 
         peer_list = self.discovery_peers()
@@ -162,12 +163,13 @@ class Peer:
     def run(self) -> None:
         try:
             while True:
-                self.server._handle_events(timeout=1)
+                self.server.serve()
                 # TODO: add logic for when not polling
         except KeyboardInterrupt:
             self.log.info(f"{'-'*50}\nClosing down Peer")
         finally:
-            self.server._cleanup()
+            ...
+            # self.server._cleanup()
 
     def send_request(self) -> None:
         # TODO: this theoretically will be called by the CLI, determine correct args

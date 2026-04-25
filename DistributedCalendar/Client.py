@@ -300,7 +300,7 @@ def main() -> None:
     client_name = sys.argv[1]
     host = sys.argv[2]
     port = int(sys.argv[3])
-    with Client(client_name=client_name, host=host, port=port) as client:
+    with Client(client_name=client_name, host=host, port=port, own_host=socket.gethostname(), own_port=0) as client:
         now_utc = int(datetime.now(timezone.utc).timestamp())
         one_hour_later = int(
             (datetime.now(timezone.utc) + timedelta(hours=1)).timestamp()
