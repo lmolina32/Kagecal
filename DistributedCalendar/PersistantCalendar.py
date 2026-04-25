@@ -14,7 +14,7 @@ class Transaction(NamedTuple):
     event: Optional[Event]
 
 
-class PersistantHashTable:
+class PersistantCalendar:
 
     # Global module configs
     CKPT_THRESHOLD = 100
