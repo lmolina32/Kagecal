@@ -40,7 +40,6 @@ class Server:
         peer_ident: str,
         ckpt_path: str,
         txn_path: str,
-        port: int = 0,
     ):
         # Logging
         self.log = logging.getLogger(__name__)
@@ -72,7 +71,7 @@ class Server:
 
         # Initialize server socket and socket selector.
         servsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        servsock.bind((socket.gethostname(), port))
+        servsock.bind((socket.gethostname(), 0))
         servsock.listen(self.MAX_CONCURRENCY)
         servsock.setblocking(False)
         self.host, self.port = servsock.getsockname()

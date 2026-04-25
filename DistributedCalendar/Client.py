@@ -6,7 +6,7 @@ import socket
 import pickle
 import logging
 from datetime import datetime, timezone, timedelta
-from typing import Self, Optional, Tuple, Dict, List
+from typing import Self, Optional
 
 from .Calendar import Repeats, Event
 
@@ -15,6 +15,8 @@ logging.basicConfig(
     format="[%(levelname)s %(asctime)s %(module)s:%(lineno)d] %(message)s",
     datefmt="%H:%M:%S",
 )
+
+Socket = socket.socket
 
 
 class Client:
@@ -162,7 +164,7 @@ class Client:
         msg = self._serialize_data(send_msg)
         return self._connect_to_server(msg)
 
-    def who_is_leader(self) -> Tuple[str, int]:
+    def who_is_leader(self) -> tuple[str, int]:
         send_msg = {
             "method": "who_is_leader",
             "from": (self.host, self.port),
@@ -170,7 +172,7 @@ class Client:
         msg = self._serialize_data(send_msg)
         return self._connect_to_server(msg)
 
-    def register_and_sync(self, host: str, port: int) -> Tuple[int, Dict[int, Event]]:
+    def register_and_sync(self, host: str, port: int) -> tuple[int, dict[int, Event]]:
         send_msg = {
             "method": "register_and_sync",
             "params": {"host": host, "port": port},
