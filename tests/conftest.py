@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 from pathlib import Path
 from DistributedCalendar.Calendar import Calendar
-from DistributedCalendar.PersistantCalendar import PersistantHashTable
+from DistributedCalendar.PersistantCalendar import PersistantCalendar
 from utils import create_event
 
 
@@ -21,10 +21,10 @@ def filled_in_calendar() -> Calendar:
 @pytest.fixture
 def calendar(mocker, tmp_path):
     restore_mock = mocker.patch.object(
-        PersistantHashTable, "_restore", return_value=MagicMock()
+        PersistantCalendar, "_restore", return_value=MagicMock()
     )
     mocker.patch.object(Path, "cwd", return_value=tmp_path)
-    calendar = PersistantHashTable()
+    calendar = PersistantCalendar()
     mocker.stop(restore_mock)
     calendar.CKPT_PATH = str(tmp_path / "calendar.ckpt")
     calendar.TXN_LOG_PATH = str(tmp_path / "calendar.txns")

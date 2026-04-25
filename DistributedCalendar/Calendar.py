@@ -78,7 +78,7 @@ class Event:
         - Repeats.repeats_starting is less than or equal to Repeats.repeats_until
         """
 
-        if self.start >= self.end:
+        if self.start > self.end:
             raise ValueError("End time cannot be before start time.")
         if len(self.name) > (1 << 10):
             raise ValueError("Event name must be less than 1K characters.")
@@ -86,7 +86,7 @@ class Event:
             raise ValueError("Event description must be less than 8K characters.")
         if self.location and len(self.location) > (1 << 10):
             raise ValueError("Event location must be less than 1K characters.")
-        if self.repeats and self.repeats.repeats_starting >= self.repeats.repeats_until:
+        if self.repeats and self.repeats.repeats_starting > self.repeats.repeats_until:
             raise ValueError("Repeat end date cannot be before repeat start date.")
 
 

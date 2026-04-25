@@ -6,31 +6,31 @@ import struct
 from unittest.mock import MagicMock, mock_open, patch
 
 from utils import create_event, create_repeat
-from DistributedCalendar.Calendar import Calendar
-from DistributedCalendar.PersistantCalendar import PersistantHashTable, Transaction
+from DistributedCalendar import Calendar
+from DistributedCalendar import PersistantCalendar, Transaction
 
 
 def test_init_calls_restore(mocker):
     mock_restore = mocker.patch.object(
-        PersistantHashTable, "_restore", return_value=MagicMock()
+        PersistantCalendar, "_restore", return_value=MagicMock()
     )
     mocker.patch("builtins.open", mock_open())
-    PersistantHashTable()
+    PersistantCalendar()
     mock_restore.assert_called_once()
 
 
 def test_init_opens_txn_log(mocker):
-    mocker.patch.object(PersistantHashTable, "_restore", return_value=MagicMock())
+    mocker.patch.object(PersistantCalendar, "_restore", return_value=MagicMock())
     mock_file = mocker.patch("builtins.open", mock_open())
-    p = PersistantHashTable()
+    p = PersistantCalendar()
     mock_file.assert_called_once_with(p.TXN_LOG_PATH, "ab")
 
 
 def test_init_txns_logged_starts_at_zero(mocker):
-    mocker.patch.object(PersistantHashTable, "_restore", return_value=MagicMock())
+    mocker.patch.object(PersistantCalendar, "_restore", return_value=MagicMock())
     mocker.patch("builtins.open", mock_open())
 
-    pht = PersistantHashTable()
+    pht = PersistantCalendar()
 
     assert pht.txns_logged == 0
 
@@ -77,9 +77,7 @@ def test_persistent_restore_new_checkpoint_logic(calendar, tmp_path, mocker) -> 
     new_ckpt.touch()
 
     # assert that new_checkpoint reads calles _checkpoint
-    m = mocker.patch.object(
-        PersistantHashTable, "_checkpoint", return_value=MagicMock()
-    )
+    m = mocker.patch.object(PersistantCalendar, "_checkpoint", return_value=MagicMock())
     calendar._restore()
     m.assert_called_once()
     mocker.stop(m)
@@ -186,9 +184,7 @@ def test_persistent_log(calendar, tmp_path, mocker) -> None:
 
     # assert compaction
     calendar.txns_logged = calendar.CKPT_THRESHOLD - 1
-    m = mocker.patch.object(
-        PersistantHashTable, "_checkpoint", return_value=MagicMock()
-    )
+    m = mocker.patch.object(PersistantCalendar, "_checkpoint", return_value=MagicMock())
     calendar._log(txn)
     m.assert_called_once()
 

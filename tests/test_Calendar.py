@@ -111,39 +111,30 @@ def test_calendar_modify(filled_in_calendar) -> None:
 def test_validate_event() -> None:
     c = Calendar()
     event = create_event()
-    result = c._validate_event(event)
-    assert result == True
+    event.validate_event()
 
     event = create_event(start=1, end=1)
-    result = c._validate_event(event)
-    assert result == False
-
-    event = create_event(end=1)
-    result = c._validate_event(event)
-    assert result == False
-
-    event = create_event(name=f"{"-"*(1<<10)}-")
-    result = c._validate_event(event)
-    assert result == False
+    event.validate_event()
 
     event = create_event(name=f"{"-"*(1<<10)}")
-    result = c._validate_event(event)
-    assert result == True
-
-    event = create_event(description=f"{"-"*(1<<13)}-")
-    result = c._validate_event(event)
-    assert result == False
+    event.validate_event()
 
     event = create_event(description=f"{"-"*(1<<13)}")
-    result = c._validate_event(event)
-    assert result == True
+    event.validate_event()
 
-    repeats = create_repeat(hour=-1)
-    event = create_event(repeats=repeats)
-    result = c._validate_event(event)
-    assert result == False
+    with pytest.raises(ValueError):
+        event = create_event(end=1)
+        event.validate_event()
 
-    repeats = create_repeat(hour=0)
-    event = create_event(repeats=repeats)
-    result = c._validate_event(event)
-    assert result == False
+        event = create_event(name=f"{"-"*(1<<10)}-")
+        event.validate_event()
+
+        event = create_event(description=f"{"-"*(1<<13)}-")
+        event.validate_event()
+
+        repeats = create_repeat(hour=-1)
+        event.validate_event()
+
+        repeats = create_repeat(hour=0)
+        event = create_event(repeats=repeats)
+        event.validate_event()
