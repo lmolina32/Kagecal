@@ -18,7 +18,7 @@ logging.basicConfig(
 
 
 class Client:
-    BUFFER_SIZE = 2**10
+    BUFFER_SIZE = 1 << 12
     MAX_BACKOFF = 128
     MAX_RETRIES = 4
 
@@ -111,9 +111,11 @@ class Client:
         return self._connect_to_server(msg)
 
     def delete(self, ident: int) -> None:
-        send_msg = {"method": "delete", "params": {"ident": ident},
+        send_msg = {
+            "method": "delete",
+            "params": {"ident": ident},
             "from": (self.host, self.port),
-                    }
+        }
         msg = self._serialize_data(send_msg)
         return self._connect_to_server(msg)
 
