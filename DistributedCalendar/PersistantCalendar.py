@@ -54,7 +54,7 @@ class PersistantCalendar:
     def __del__(self) -> None:
         self.txn_log_file.close()
 
-    def update(self, events: list[Event], logical_clock) -> None:
+    def update(self, events: dict[int, Event], logical_clock) -> None:
         """Atomically overwrite the entire calendar state with the passed event list and logical clock.
 
         This method is similar to checkpoint except with slightly different semantics. During a restore, if there is an update file, the calendar state will restore from the update file instead of the checkpoint. It will then NOT replay the transaction log (to avoid replaying stale changes). Instead, it will delete the transaction log.

@@ -42,6 +42,7 @@ class Peer:
         self.leaders_address: Tuple[str, int] = ("", 0)
         self.log = logging.getLogger()
         self.server: Server = self.startup()
+        self.pid = os.getpid()
 
         self.election_happening = False
         self.election_cv = threading.Condition()
@@ -186,6 +187,7 @@ class Peer:
 
     def create(self) -> Optional[int]:
         """If this peer is the leader, takes the lock on the calendar and updates it directly. Otherwise, uses the RPC stub on the client to update the calendar on the server, then syncs with the server."""
+
         pass
 
     # TODO: Write all the calendar stubs, make the mutating ones wait on the election condition variable.
@@ -194,8 +196,7 @@ class Peer:
         """Target for the thread created by start_server."""
         while not self.pause_server.is_set():
             # 1. Serve a round of requests.
-            with self.server.calendar_lock():
-                flags = self.server.serve()
+            flags = self.server.serve()
 
             # 2. Check for ELECTION
             if flags & ServerFlags.DO_ELECTION:
@@ -205,25 +206,63 @@ class Peer:
             # 3. Check for SYNC
             if flags & ServerFlags.DO_SYNC:
                 # Sync is a request to the leader, so it could fail, triggering an election.
-                calendar, clock = self.client.sync()
+                try:
+                    calendar, clock = self.client.sync()
+                except TimeoutError:
+                    self.call_election()
+                    continue
                 self.server.update(calendar, clock)
 
     def call_election(self):
-        """Initiates (or continues) the leader election protocol. While this method is executing, this peer will stop serving incoming requests, and attempts to modify the calendar state will block, but local reads will not block."""
+        """Initiates (or continues) the leader election protocol. While this method is executing, this peer will stop serving incoming requests, and attempts to modify the calendar state will block, but local reads will not block. A new client to the new leader is created."""
         # TODO: Complete this method
 
         # 0. Set the election condition variable.
         with self.election_cv:
             self.election_happening = True
 
-        # 1. Get all peer endpoints from catalog
+        # 1. Get all peer endpoints from catalog.
         catalog_entries = self._get_catalog()
+        lower_pids = []
+        higher_pids = []
+
+        # TODO: Tiebreaker if PIDs are the same.
+        for entry in catalog_entries:
+            if entry["PID"] > self.pid:
+                higher_pids.append(entry)
+            else:
+                lower_pids.append(entry)
 
         # 2. From highest PID to lowest PID, send an ELECTION message to the peer.
+        higher_pids.sort(key=lambda x: x["lastheardfrom"], reverse=True)
+        higher_pids.sort(key=lambda x: x["PID"], reverse=True)
+        for entry in higher_pids:
+            client = Client(entry["host"], entry["port"], self.own_host, self.own_port)
+            if client.call_election():
+                # a. If OK received, wait for COORDINATE message on server forever. (In the event all peers die at this point and never recover, the application will have to be restarted by the user.)
+                self.server.await_coordinate()
+                break
+        else:
+            # b. If no OK received from any peer with higher PID (or if there are no peers with a higher PID), become the leader and send COORDINATE. Check the logical clock on all COORDINATE ACKs, and SYNC with highest one.
+            self.server.set_mode(ServerMode.LEADER)
 
-        # a. If OK received, wait for COORDINATE message on server forever. (In the event all peers die at this point and never recover, the application will have to be restarted by the user.)
+            clients = []
+            for entry in lower_pids:
+                client = Client(
+                    entry["host"], entry["port"], self.own_host, self.own_port
+                )
+                logical_clock = client.coordinate()
+                if logical_clock > self.logical_clock:
+                    clients.append((logical_clock, client))
 
-        # b. If no OK received from any peer wit higher PID (or if there are no peers with a higher PID), become the leader and send COORDINATE. Check the logical clock on all COORDINATE ACKs, and SYNC with highest one.
+            if clients:
+                clients.sort(reverse=True)
+                for clock, client in clients:
+                    try:
+                        events, logical_clock = client.sync()
+                    except TimeoutError:
+                        continue
+                    self.server.update(events, logical_clock)
 
         # 3. Wake the UI thread if it is waiting for the election to finish to place write.
         with self.election_cv:

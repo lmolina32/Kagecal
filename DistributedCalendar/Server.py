@@ -57,7 +57,6 @@ class Server:
 
         # Set up calednar and its lock
         self.persistence = PersistantCalendar(ckpt_path, txn_path)
-        self.logical_clock = 0
         self.calendar_lock = threading.Lock()
 
         # Init server state
@@ -78,8 +77,6 @@ class Server:
         self.leaders_address: tuple[int, str] = ("", 0)
         self.mode: ServerMode = ServerMode.FOLLOWER
         self.mode_lock = threading.Lock()
-
-        # self.logical_clock: int = self.persistence.logical_clock
 
         # Initialize server socket and socket selector.
         servsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -126,15 +123,16 @@ class Server:
         for t in self.threads:
             t.join()
 
-    # Socket multiplexing methods
     def serve(self) -> int:
         """Poll all client connections for incoming requests and serve them. Returns after one round of socket events has been handled."""
-        server_flags = 0
-        for key, mask in self.sock_selector.select():
-            callback = key.data
-            server_flags &= callback(key.fileobj)
+        with self.calendar_lock:
+            server_flags = 0
+            for key, mask in self.sock_selector.select():
+                callback = key.data
+                server_flags &= callback(key.fileobj)
         return server_flags
 
+    # === SOCKET MULTIPLEXING ===
     def _accept(self, servsock: Socket) -> int:
         """Socket selector callback that handles an incoming connection on the server socket."""
         clientsock, addr = servsock.accept()
@@ -217,12 +215,6 @@ class Server:
             response = func(method, params)
         except ValueError | PermissionError as e:
             self.log.error(f"{e}")
-            response = {"status": "failure", "error": str(e)}
-        except Exception as e:
-            # TODO: Remove this
-            self.log.warn(
-                f"This should not trigger, if this triggers add exception to block above, this should be delete at the end of development"
-            )
             response = {"status": "failure", "error": str(e)}
 
         # 3. Send ack.
@@ -310,7 +302,7 @@ class Server:
             self.stop.wait(self.NAMESERV_KEEPALIVE)
         s.close()
 
-    # TODO: idea we can have each function return a dicitionary of values they want to pass, and then in the rpc_hanlder function, we expect params, then construct the dictionary in the rpc_handler and return it, rather than constructing a dictionary for each RPC event
+    # === RPC Handlers ===
     def _create(self, method: str, params: dict) -> dict:
         self._validate_rpc(method, params)
         ident = self.persistence.create(**params)
@@ -429,8 +421,15 @@ class Server:
     #     t.start()
     #     self.threads.append(t)
 
-    def _sync(self, method: str, params: dict, followers: list) -> None:
+    def _sync(self, method: str, params: dict) -> dict:
         """RPC handler for SYNC requests. If the server is the leader or the server is a follower and the requesting client is the leader, sends the server's entire calendar state and logical clock to the client."""
+        return {
+            "method": method,
+            "status": "success",
+            "calendar": self.persistence.list_events(),
+            "logical_clock": self.logical_clock,
+        }
+
         # TODO: Respond with the entire event list and logical clock.
 
         # TODO: pings all known peers in the system with the updated logical clock + CRUD operation
@@ -459,11 +458,23 @@ class Server:
         #         self.log.info(f"Failed to send resync to {host}:{port}")
         #         self.log.info("here is the expection ", e)
 
-    def update(events: dict[int, Event], logical_clock: int):
+    def coordinate():
+        """RPC handler that responsds to COORDINATE messages. Updates the local leader endpoint and responds with logical clock value."""
+        pass
+
+    def await_coordinate():
+        """Same behavior as coordinate, but does a blocking read until a COORDINATE message is received."""
+        pass
+
+    def update(self, events: dict[int, Event], logical_clock: int):
         """Updates the calendar state to match the passed in event list and clock. Analogous to _sync."""
-        # TODO: Complete this method
         with self.calendar_lock:
-            pass
+            self.persistence.update(events, logical_clock)
+
+    def set_mode(self, mode: ServerMode) -> None:
+        """Sets the server mode to either FOLLOWER or LEADER."""
+        with self.mode_lock:
+            self.mode = mode
 
 
 def main() -> None:

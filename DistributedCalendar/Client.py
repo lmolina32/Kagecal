@@ -23,13 +23,13 @@ class Client:
     BUFFER_SIZE = 1 << 12
     MAX_BACKOFF = 128
     MAX_RETRIES = 4
+    ELECTION_MAX_RETRIES = 3
 
     def __init__(
-        self, client_name: str, host: str, port: int, own_host: str, own_port: int
+        self, target_host: str, target_port: int, own_host: str, own_port: int
     ):
-        self.client_name: str = client_name
-        self.host: str = host
-        self.port: int = port
+        self.target_host: str = target_host
+        self.target_port: int = target_port
         self.own_host: str = own_host
         self.own_port: int = own_port
         self.backoff: int = 1
@@ -40,8 +40,13 @@ class Client:
         self.socket: Optional[socket.socket] = None
         self._create_socket()
 
-    def sync(self):
-        """Retrieve the current calendar state and logical clock from the leader, overwriting the local state and clock. If the leader cannot be reached, call an election."""
+    def __del__(self):
+        # TODO: Close the socket gracefully.
+        pass
+
+    def sync(self) -> tuple[list[Event], int]:
+        """Retrieves the current calendar state and logical clock from the target peer. On success, returns a tuple containing the event list and logical clock. On failure, raises a TimeoutError."""
+
         pass
 
     def _create_socket(self) -> None:
@@ -53,8 +58,8 @@ class Client:
             for _ in range(self.MAX_RETRIES):
                 try:
                     self.socket.settimeout(5.0)
-                    self.socket.connect((self.host, self.port))
-                    self.log.info(f"Connected to {self.host}:{self.port}")
+                    self.socket.connect((self.target_host, self.target_port))
+                    self.log.info(f"Connected to {self.target_host}:{self.target_port}")
                     return
                 except Exception as e:
                     self.log.error(f"_create_socket: {e}")
@@ -110,7 +115,7 @@ class Client:
                 "location": location,
                 "repeats": repeats,
             },
-            "from": (self.host, self.port),
+            "from": (self.target_host, self.target_port),
         }
         self.log.info(send_msg)
         msg = self._serialize_data(send_msg)
@@ -120,7 +125,7 @@ class Client:
         send_msg = {
             "method": "delete",
             "params": {"ident": ident},
-            "from": (self.host, self.port),
+            "from": (self.target_host, self.target_port),
         }
         msg = self._serialize_data(send_msg)
         return self._connect_to_server(msg)
@@ -146,7 +151,7 @@ class Client:
                 "location": location,
                 "repeats": repeats,
             },
-            "from": (self.host, self.port),
+            "from": (self.host, self.target_port),
         }
         msg = self._serialize_data(send_msg)
         return self._connect_to_server(msg)
@@ -155,7 +160,7 @@ class Client:
         send_msg = {
             "method": "get_event",
             "params": {"ident": ident},
-            "from": (self.host, self.port),
+            "from": (self.host, self.target_port),
         }
         msg = self._serialize_data(send_msg)
         return self._connect_to_server(msg)
@@ -175,6 +180,16 @@ class Client:
         }
         msg = self._serialize_data(send_msg)
         return self._connect_to_server(msg)
+
+    def call_election(self) -> bool:
+        """Send an ELECTION message to the target peer. Returns True if received OK from target, or False otherwise."""
+        # TODO: IMplement method
+        pass
+
+    def coordinate(self) -> int:
+        """Send a COORDINATE message to the target peer. Return the logical clock from the response, or 0 if the request fails."""
+        # TODO: Implement method
+        pass
 
     def register_and_sync(self, host: str, port: int) -> tuple[int, dict[int, Event]]:
         send_msg = {
