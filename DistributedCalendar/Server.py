@@ -1,4 +1,5 @@
 import sys
+import os
 import json
 import socket
 import selectors
@@ -56,6 +57,7 @@ class Server:
 
         # Set up calednar and its lock
         self.persistence = PersistantCalendar(ckpt_path, txn_path)
+        self.logical_clock = 0
         self.calendar_lock = threading.Lock()
 
         # Init server state
@@ -76,7 +78,6 @@ class Server:
         self.leaders_address: tuple[int, str] = ("", 0)
         self.mode: ServerMode = ServerMode.FOLLOWER
         self.mode_lock = threading.Lock()
-        self.logical_clock = 0
 
         # self.logical_clock: int = self.persistence.logical_clock
 
@@ -290,12 +291,13 @@ class Server:
         hostname: str = "catalog.cse.nd.edu"
         port: int = 9097
         raw_data: dict[str, str | int] = {
-            "type": "calendar",
-            "owner": "lmolina3",
+            "owner": "Sam, Leo",
+            "project": "kagecal",
+            "calendar_ident": self.calendar_ident,
+            "peer_ident": self.peer_ident,
             "port": self.port,
             "host": self.host,
-            "project": self.calendar_ident,
-            "peer_name": self.peer_ident,
+            "PID": os.getpid(),
         }
         data = json.dumps(raw_data).encode()
         data_size = len(data)
@@ -394,66 +396,74 @@ class Server:
             if "port" not in params:
                 raise ValueError(f"{method} requires the parameter port")
 
-    def _register(self, method: str, params: dict) -> dict:
-        """RPC method that adds the client's Peer to the list of known peers."""
-        try:
-            self._validate_rpc(method, params)
-        except ValueError as e:
-            return {"method": method, "status": "failure", "error": e}
+    # def _register(self, method: str, params: dict) -> dict:
+    #     """RPC method that adds the client's Peer to the list of known peers."""
+    #     try:
+    #         self._validate_rpc(method, params)
+    #     except ValueError as e:
+    #         return {"method": method, "status": "failure", "error": e}
 
-        # TODO: Server should know the UDP broadcast receiver endpoint.
-        self.followers.append((params["host"], params["port"]))
-        self.log.info(f"adding {params["host"]}:{params["port"]} to know peers")
-        return {
-            "method": method,
-            "status": "success",
-            "logical_clock": self.persistence.logical_clock,
-            "calendar": self.persistence.list_events(),
-        }
+    #     # TODO: Server should know the UDP broadcast receiver endpoint.
+    #     self.followers.append((params["host"], params["port"]))
+    #     self.log.info(f"adding {params["host"]}:{params["port"]} to know peers")
+    #     return {
+    #         "method": method,
+    #         "status": "success",
+    #         "logical_clock": self.persistence.logical_clock,
+    #         "calendar": self.persistence.list_events(),
+    #     }
 
-    def reverse_sync(self, method: str, params: dict) -> None:
-        # TODO: this spawns _sync as a daemon thread in the background
-        self.log.info("starting here ")
-        self.log.info(f"{method}, {params}")
-        t = threading.Thread(
-            target=self._sync,
-            args=(
-                method,
-                params,
-                # Current Idea: leader has whole view of system, any new peers that join after this broadcast will already be sending a full sync to the leader either way
-                self.followers.copy(),
-            ),
-        )
-        t.start()
-        self.threads.append(t)
+    # def reverse_sync(self, method: str, params: dict) -> None:
+    #     # TODO: this spawns _sync as a daemon thread in the background
+    #     self.log.info("starting here ")
+    #     self.log.info(f"{method}, {params}")
+    #     t = threading.Thread(
+    #         target=self._sync,
+    #         args=(
+    #             method,
+    #             params,
+    #             # Current Idea: leader has whole view of system, any new peers that join after this broadcast will already be sending a full sync to the leader either way
+    #             self.followers.copy(),
+    #         ),
+    #     )
+    #     t.start()
+    #     self.threads.append(t)
 
     def _sync(self, method: str, params: dict, followers: list) -> None:
+        """RPC handler for SYNC requests. If the server is the leader or the server is a follower and the requesting client is the leader, sends the server's entire calendar state and logical clock to the client."""
+        # TODO: Respond with the entire event list and logical clock.
 
         # TODO: pings all known peers in the system with the updated logical clock + CRUD operation
-        for host, port in followers:
-            self.log.info(
-                f"{host}:{port} -> sending packet please work {method}\n\t{params}"
-            )
-            try:
-                with Client(
-                    self.peer_ident,
-                    host=host,
-                    port=port,
-                    own_port=self.port,
-                    own_host=self.host,
-                ) as client:
-                    self.log.info(
-                        f"This is the method here {method}, {host}, {port}, {self.port}, {self.host}"
-                    )
-                    if method == "create":
-                        client.create(**params)
-                    elif method == "modify":
-                        client.modify(**params)
-                    elif method == "delete":
-                        client.delete(**params)
-            except Exception as e:
-                self.log.info(f"Failed to send resync to {host}:{port}")
-                self.log.info("here is the expection ", e)
+        # for host, port in followers:
+        #     self.log.info(
+        #         f"{host}:{port} -> sending packet please work {method}\n\t{params}"
+        #     )
+        #     try:
+        #         with Client(
+        #             self.peer_ident,
+        #             host=host,
+        #             port=port,
+        #             own_port=self.port,
+        #             own_host=self.host,
+        #         ) as client:
+        #             self.log.info(
+        #                 f"This is the method here {method}, {host}, {port}, {self.port}, {self.host}"
+        #             )
+        #             if method == "create":
+        #                 client.create(**params)
+        #             elif method == "modify":
+        #                 client.modify(**params)
+        #             elif method == "delete":
+        #                 client.delete(**params)
+        #     except Exception as e:
+        #         self.log.info(f"Failed to send resync to {host}:{port}")
+        #         self.log.info("here is the expection ", e)
+
+    def update(events: dict[int, Event], logical_clock: int):
+        """Updates the calendar state to match the passed in event list and clock. Analogous to _sync."""
+        # TODO: Complete this method
+        with self.calendar_lock:
+            pass
 
 
 def main() -> None:

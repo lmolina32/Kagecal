@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-
+import os
 import sys
 import time
 import json
@@ -8,7 +8,7 @@ import socket
 import logging
 import threading
 from urllib.request import urlopen
-from typing import List, Tuple, Dict
+from typing import TypedDict
 
 from .Server import Server, ServerMode, ServerFlags
 from .Client import Client
@@ -21,10 +21,21 @@ logging.basicConfig(
 )
 
 
+class CatalogEntry(TypedDict):
+    owner: str
+    lastheardfrom: int
+    project: str
+    calendar_ident: str
+    peer_ident: str
+    port: int
+    host: str
+    PID: int
+
+
 class Peer:
-    def __init__(self, calendar_name: str, peer_name: str) -> None:
-        self.calendar_name: str = calendar_name
-        self.peer_name: str = peer_name
+    def __init__(self, calendar_ident: str, peer_ident: str) -> None:
+        self.calendar_ident: str = calendar_ident
+        self.peer_ident: str = peer_ident
         self.logical_clock: int = 0
         self.own_port: int = 0
         self.own_host: str = socket.gethostname()
@@ -34,48 +45,32 @@ class Peer:
 
         self.election_happening = False
         self.election_cv = threading.Condition()
+        self.pause_server = threading.Event()
 
-        # TODO: UUID for pid, save in ckpt log, timestamp?
-
-    def discovery_peers(self) -> List[Tuple[str, int, str]]:
-        """
-        Retrieve all Peers registered to the ND catalog server for this Calendar Project
-
-        Returns:
-            List of Tuples containing peers host, port, and name
-        """
+    def _get_catalog(self) -> List[CatalogEntry]:
+        """Retrieves all peers registered to the ND catalog server for this calendar."""
         nd_catalog: str = "http://catalog.cse.nd.edu:9097/query.json"
         try:
             with urlopen(nd_catalog) as res:
                 raw_data = res.read()
                 json_data = json.loads(raw_data)
         except Exception:
+            # TODO: Maybe this should retry forever. We certainly will run into split brain if we let this go.
+            self.log.critical("Failed to retrieve catalog.")
             return []
 
         peers = []
         for entry in json_data:
             if (
-                entry.get("type", "") == "calendar"
-                # TODO: low priority -> add option to set the user to be the owner of a calendar, and then not check this, e.g Sam is owner of this peer, Leo is owner of this peer.
-                and entry.get("owner") == "lmolina3"
-                and entry.get("project") == self.calendar_name
+                entry.get("project", None) == "kagecal"
+                and entry.get("calendar_ident", None) == self.calendar_ident
             ):
                 host, port = entry.get("host"), entry.get("port")
                 if host == self.own_host and port == self.own_port:
                     continue
-                peers.append(
-                    (
-                        host,
-                        port,
-                        entry.get("lastheardfrom", 0),
-                        entry.get("peer_name", ""),
-                    )
-                )
-        # Sort by most recent timestamp
-        peers.sort(key=lambda x: x[2], reverse=True)
-        return [(h, p, n) for h, p, _, n in peers]
+                peers.append(entry)
 
-    def sync_with_leader(self) -> int: ...
+        return peers
 
     def startup(self) -> Server:
         """
@@ -87,14 +82,14 @@ class Peer:
             Server: An instance of the peers server
         """
         # TODO: Need to make more robust
-        ckpt: str = f"calendar_{self.calendar_name}_{self.peer_name}.ckpt"
-        txn: str = f"calendar_{self.calendar_name}_{self.peer_name}.txn"
+        ckpt: str = f"calendar_{self.calendar_ident}_{self.peer_ident}.ckpt"
+        txn: str = f"calendar_{self.calendar_ident}_{self.peer_ident}.txn"
 
         time.sleep(time.time() % random.randint(1, 5))
 
         server = Server(
-            calendar_ident=self.calendar_name,
-            peer_ident=self.peer_name,
+            calendar_ident=self.calendar_ident,
+            peer_ident=self.peer_ident,
             ckpt_path=ckpt,
             txn_path=txn,
         )
@@ -103,12 +98,12 @@ class Peer:
         self.own_port = server.port
 
         peer_list = self.discovery_peers()
-        self.log.info(f"{self.peer_name} found {len(peer_list)} peers")
+        self.log.info(f"{self.peer_ident} found {len(peer_list)} peers")
         # Staring off the network
         if not peer_list:
             server.mode = ServerMode.LEADER
             server.leaders_address = (self.own_host, self.own_port)
-            self.log.info(f"{self.peer_name} is the leader")
+            self.log.info(f"{self.peer_ident} is the leader")
             return server
 
         # Query Peers for leaders address
@@ -116,7 +111,7 @@ class Peer:
             self.log.info(f"Attempting connection with {name}, {host}:{port}")
             try:
                 with Client(
-                    client_name=self.peer_name,
+                    client_name=self.peer_ident,
                     host=host,
                     port=port,
                     own_host=self.own_host,
@@ -141,7 +136,7 @@ class Peer:
         # Get leader address, if not responding start election
         try:
             with Client(
-                client_name=self.peer_name,
+                client_name=self.peer_ident,
                 host=server.leaders_address[0],
                 port=server.leaders_address[1],
                 own_host=self.own_host,
@@ -197,26 +192,32 @@ class Peer:
 
     def _serve(self):
         """Target for the thread created by start_server."""
-        # 1. Run serve
-        with self.server.calendar_lock():
-            flags = self.server.serve()
+        while not self.pause_server.is_set():
+            # 1. Serve a round of requests.
+            with self.server.calendar_lock():
+                flags = self.server.serve()
 
-        # 2. Check for ELECTION
-        if flags & ServerFlags.DO_ELECTION:
-            # In this codepath, the server thread doesn't need to be stopped and restarted because it is internally calling the election.
-            self.call_election()
+            # 2. Check for ELECTION
+            if flags & ServerFlags.DO_ELECTION:
+                # In this codepath, the server thread doesn't need to be stopped and restarted because it is internally calling the election.
+                self.call_election()
 
-        # 3. Check for SYNC
-        if flags & ServerFlags.DO_SYNC:
-            pass
+            # 3. Check for SYNC
+            if flags & ServerFlags.DO_SYNC:
+                # Sync is a request to the leader, so it could fail, triggering an election.
+                calendar, clock = self.client.sync()
+                self.server.update(calendar, clock)
 
     def call_election(self):
         """Initiates (or continues) the leader election protocol. While this method is executing, this peer will stop serving incoming requests, and attempts to modify the calendar state will block, but local reads will not block."""
+        # TODO: Complete this method
+
         # 0. Set the election condition variable.
         with self.election_cv:
             self.election_happening = True
 
         # 1. Get all peer endpoints from catalog
+        catalog_entries = self._get_catalog()
 
         # 2. From highest PID to lowest PID, send an ELECTION message to the peer.
 
@@ -244,5 +245,5 @@ if __name__ == "__main__":
         print(f"Usage {sys.argv[0]} <calendar-project> <peer-name>", file=sys.stderr)
         sys.exit(1)
 
-    peer = Peer(calendar_name=sys.argv[1], peer_name=sys.argv[2])
+    peer = Peer(calendar_ident=sys.argv[1], peer_ident=sys.argv[2])
     peer.run()
