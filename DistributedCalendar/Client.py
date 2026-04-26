@@ -40,6 +40,10 @@ class Client:
         self.socket: Optional[socket.socket] = None
         self._create_socket()
 
+    def sync(self):
+        """Retrieve the current calendar state and logical clock from the leader, overwriting the local state and clock. If the leader cannot be reached, call an election."""
+        pass
+
     def _create_socket(self) -> None:
         """Estbalish a connection to a specified (host, port) with exponential backoffs"""
         self._socket_close()
@@ -300,7 +304,13 @@ def main() -> None:
     client_name = sys.argv[1]
     host = sys.argv[2]
     port = int(sys.argv[3])
-    with Client(client_name=client_name, host=host, port=port, own_host=socket.gethostname(), own_port=0) as client:
+    with Client(
+        client_name=client_name,
+        host=host,
+        port=port,
+        own_host=socket.gethostname(),
+        own_port=0,
+    ) as client:
         now_utc = int(datetime.now(timezone.utc).timestamp())
         one_hour_later = int(
             (datetime.now(timezone.utc) + timedelta(hours=1)).timestamp()

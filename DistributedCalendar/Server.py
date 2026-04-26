@@ -21,18 +21,27 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 
+# TODO: Server need to send UDP broadcasts containing the current logical clock after every calendar state mutation, as well as every interval.
+
 
 class ServerMode(Enum):
     FOLLOWER = 0
     LEADER = 1
 
 
+class ServerFlags(Enum):
+    DO_SYNC = 1 << 0
+    DO_ELECTION = 1 << 1
+
+
 # TODO: update type hints
 class Server:
     BUFFER_SIZE = 1 << 12  # 4 KiB
-    ACK_TIMEOUT = 5  # Seconds
+    CLIENT_SOCK_TIMEOUT = 5  # Seconds
     NAMESERV_KEEPALIVE = 60  # Seconds
-    MAX_CONCURRENCY = 10
+    CLOCK_BROADCAST = 60  # Seconds
+    BROADCAST_PORT = 9375
+    BROADCAST_MAXLEN = 1 << 10
 
     def __init__(
         self,
@@ -44,9 +53,10 @@ class Server:
         # Logging
         self.log = logging.getLogger(__name__)
         self.log.setLevel(logging.DEBUG)
-        self.persistence = PersistantCalendar(
-            ckpt_path=ckpt_path, txn_log_path=txn_path
-        )
+
+        # Set up calednar and its lock
+        self.persistence = PersistantCalendar(ckpt_path, txn_path)
+        self.calendar_lock = threading.Lock()
 
         # Init server state
         self.calendar_ident: str = calendar_ident
@@ -63,9 +73,10 @@ class Server:
 
         # TODO: upon sync, peer sends the leader their own host, port
         # TODO: add logic for elections maybe need attributes (synced peers, queue for seralization??)
-        self.followers: list[tuple[int, str]] = []
-        self.mode: ServerMode = ServerMode.FOLLOWER
         self.leaders_address: tuple[int, str] = ("", 0)
+        self.mode: ServerMode = ServerMode.FOLLOWER
+        self.mode_lock = threading.Lock()
+        self.logical_clock = 0
 
         # self.logical_clock: int = self.persistence.logical_clock
 
@@ -73,12 +84,24 @@ class Server:
         servsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         servsock.bind((socket.gethostname(), 0))
         servsock.listen(self.MAX_CONCURRENCY)
-        servsock.setblocking(False)
+
+        # Set up UDP broadcast sockets.
+        broadcast_sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        broadcast_sender.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        broadcast_receiver = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        receiver.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        receiver.bind(("", self.BROADCAST_PORT))
+
         self.host, self.port = servsock.getsockname()
         self.log.info(f"{self.peer_ident} listening on \033[32m{self.port}\033[0m")
+
+        # Set up socket selector.
         # See https://docs.python.org/3/library/selectors.html
         self.sock_selector = selectors.DefaultSelector()
         self.sock_selector.register(servsock, selectors.EVENT_READ, self._accept)
+        self.sock_selector.register(
+            broadcast_receiver, selectors.EVENT_READ, self._handle_broadcast
+        )
 
         # Set up name service daemon
         self.stop: threading.Event = threading.Event()
@@ -103,32 +126,42 @@ class Server:
             t.join()
 
     # Socket multiplexing methods
-    def serve(self) -> None:
+    def serve(self) -> int:
         """Poll all client connections for incoming requests and serve them. Returns after one round of socket events has been handled."""
+        server_flags = 0
         for key, mask in self.sock_selector.select():
             callback = key.data
-            callback(key.fileobj)
+            server_flags &= callback(key.fileobj)
+        return server_flags
 
-    def _accept(self, servsock: Socket) -> None:
+    def _accept(self, servsock: Socket) -> int:
         """Socket selector callback that handles an incoming connection on the server socket."""
         clientsock, addr = servsock.accept()
         self.log.info(f"Accepted {clientsock} from {addr}.")
-        clientsock.setblocking(False)
+        clientsock.settimeout(self.CLIENT_SOCK_TIMEOUT)
         self.sock_selector.register(clientsock, selectors.EVENT_READ, self._handle_rpc)
+        return 0
 
-    def _handle_rpc(self, clientsock: Socket) -> None:
+    def _handle_rpc(self, clientsock: Socket) -> int:
         """Socket selector callback that handles an incoming RPC event from a registered client socket."""
+        # TODO: IF we get an ELECTION message, respond with ELEC_OK and return DO_ELECTION
+        # TODO: IF we get an COORDINATE message, respond with COORD_OK and clock, update leader endpoint.
+        # TODO: IF we get a SYNC from the leader, let that go through.
+
         # 1. Attempt to read in the entire RPC. If we get zero, have to close and unregister the client socket.
 
         # Recieve Header
         header = b""
         while b"\n" not in header:
-            data = clientsock.recv(self.BUFFER_SIZE)
+            try:
+                data = clientsock.recv(self.BUFFER_SIZE)
+            except socket.timeout:
+                data = b""
             if not data:
                 self.log.error(f"Connection broken from {clientsock}")
                 self.sock_selector.unregister(clientsock)
                 self._close_socket(clientsock)
-                return
+                return 0
             header += data
 
         delim_idx = header.index(b"\n")
@@ -139,12 +172,16 @@ class Server:
 
         # Recieve body
         while read_amt < data_size:
+            try:
+                data = clientsock.recv(self.BUFFER_SIZE)
+            except socket.timeout:
+                data = b""
             data = clientsock.recv(self.BUFFER_SIZE)
             if not data:
                 self.log.error(f"Connection broken mid-payload from {clientsock}")
                 self.sock_selector.unregister(clientsock)
                 self._close_socket(sock)
-                return
+                return 0
             read_amt += len(data)
             buffer.append(data)
 
@@ -154,7 +191,7 @@ class Server:
             self.log.error(f"Deserialization failed from {client_address}: {e}")
             self.sock_selector.unregister(clientsock)
             self._close_socket(sock)
-            return
+            return 0
 
         # 2. Parse the request.
         # TODO: add logic, leader does all of the below, follower only allows reads and rejects everything else
@@ -167,8 +204,9 @@ class Server:
                 f"here is the method: {method}, leader address: {self.leaders_address} mine is {msg_from}"
             )
             if self.mode == ServerMode.FOLLOWER and msg_from != self.leaders_address:
-                if method in ["create", "modify", "delete"]:
+                if method in {"create", "modify", "delete"}:
                     # TODO: need to add who_is_leader + register_and_sync when election
+                    # TODO: Instead of raising permission error, should inform sender of current leader.
                     raise PermissionError(
                         f"This peer is not the leader, send all (create, modify, delete) requests to leader"
                     )
@@ -180,6 +218,7 @@ class Server:
             self.log.error(f"{e}")
             response = {"status": "failure", "error": str(e)}
         except Exception as e:
+            # TODO: Remove this
             self.log.warn(
                 f"This should not trigger, if this triggers add exception to block above, this should be delete at the end of development"
             )
@@ -187,14 +226,45 @@ class Server:
 
         # 3. Send ack.
         self._send_ack(response, clientsock)
+        return 0
+
+    def _handle_broadcast(self, receiver: Socket) -> int:
+        """Handles an incoming broadcast from the leader containing its logical clock. If the clock is higher than this peer's clock, inform the peer that we need to sync with the leader."""
+        data, addr = receiver.recvfrom(self.BROADCAST_MAXLEN)
+        match addr:
+            case (self.host, self.port):
+                # This node is the leader, and the broadcast came from itself.
+                return 0
+            case self.leaders_address:
+                # Broacast came from leader. Check if sync necessary
+                if addr == self.leaders_address:
+                    try:
+                        message = json.loads(data)
+                    except json.decoder.JSONDecodeError:
+                        return 0
+                clock = message.get("logical_clock", 0)
+                return ServerFlags.DO_SYNC if clock > self.logical_clock else 0
+            case _:
+                # Came from some other node. Ignore.
+                return 0
+
+    def _broadcast_clock(self, sender: Socket) -> None:
+        """Broadcasts to all nodes a dict of the form {"calendar_ident": str, "logical_clock": int }. The calendar ident is to prevent cross talk from several concurrently running calendars."""
+        # TODO: This could cause a problem if the calendar ident is sufficiently long that it exceeds the MTU of the network nodes, causing the UDP packet to be fragmented and possibly arrive out of order.
+        message = {
+            "calendar_ident": self.calendar_ident,
+            "logical_clock": self.logical_clock,
+        }
+        message_bytes = json.dumps(message)
+        try:
+            sender.sendto(message_bytes, ("<broadcast>", self.BROADCAST_PORT))
+        except OSError:
+            self.log.warn("Failed to broadcast clock.")
 
     def _send_ack(self, payload: dict[str, str], clientsock: Socket) -> None:
         """Send acknowledgment of the request to file descriptor"""
         pickled_msg = pickle.dumps(payload)
         header = str(len(pickled_msg)).encode() + b"\n"
-        clientsock.setblocking(True)
-        clientsock.settimeout(self.ACK_TIMEOUT)
-
         try:
             clientsock.sendall(header + pickled_msg)
         except BrokenPipeError | ConnectionResetError as e:
@@ -203,8 +273,6 @@ class Server:
             self._close_socket(sock)
         except socket.timeout:
             self.log.warn(f"Ack to {clientsock} timed out.")
-        finally:
-            clientsock.setblocking(False)
 
     def _close_socket(self, sock: Socket) -> None:
         """Close file descriptor socket gracefully"""
@@ -326,12 +394,14 @@ class Server:
             if "port" not in params:
                 raise ValueError(f"{method} requires the parameter port")
 
-    # TODO: What in tarnation is going on here.
-    def _register_and_sync(self, method: str, params: dict) -> dict:
+    def _register(self, method: str, params: dict) -> dict:
+        """RPC method that adds the client's Peer to the list of known peers."""
         try:
             self._validate_rpc(method, params)
         except ValueError as e:
             return {"method": method, "status": "failure", "error": e}
+
+        # TODO: Server should know the UDP broadcast receiver endpoint.
         self.followers.append((params["host"], params["port"]))
         self.log.info(f"adding {params["host"]}:{params["port"]} to know peers")
         return {
@@ -358,6 +428,7 @@ class Server:
         self.threads.append(t)
 
     def _sync(self, method: str, params: dict, followers: list) -> None:
+
         # TODO: pings all known peers in the system with the updated logical clock + CRUD operation
         for host, port in followers:
             self.log.info(
