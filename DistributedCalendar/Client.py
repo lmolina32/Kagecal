@@ -247,85 +247,6 @@ class Client:
                 self.socket.close()
                 self.socket = None
 
-    # def _serialize_data(self, payload: dict[str, str | int | Repeats]) -> bytes:
-    #     """serialize data to send over the wire"""
-    #     pickled_msg = pickle.dumps(payload)
-    #     header = str(len(pickled_msg)).encode() + b"\n"
-    #     msg = header + pickled_msg
-    #     return msg
-
-    # def _send_data(self, payload: bytes) -> None:
-    #     """Send payload to server"""
-    #     if self.socket is None:
-    #         self._create_socket()
-    #     assert self.socket is not None
-    #     self.socket.settimeout(5.0)
-    #     self.socket.sendall(payload)
-
-    # def _recv_ack(self) -> bool | int | None:
-    #     """Recieve acknowledgement from server"""
-    #     header = b""
-    #     assert self.socket is not None
-
-    #     # 1. Recieve payload header (length)
-    #     self.socket.settimeout(5.0)
-    #     while b"\n" not in header:
-    #         data = self.socket.recv(self.BUFFER_SIZE)
-    #         if not data:
-    #             raise ConnectionError("Connection closed from server try again")
-    #         header += data
-
-    #     delim_idx = header.index(b"\n")
-    #     data_size = int(header[:delim_idx].decode())
-    #     buffer = header[delim_idx + 1 :]
-    #     read_amt = len(buffer)
-
-    #     # 2. Receive payload of specified size
-    #     while read_amt < data_size:
-    #         remaining = data_size - read_amt
-    #         data = self.socket.recv(min(self.BUFFER_SIZE, remaining))
-    #         if not data:
-    #             raise ConnectionError("Connection closed mid-payload")
-    #         read_amt += len(data)
-    #         buffer += data
-
-    #     if len(buffer) == 0:
-    #         raise Exception("Buffer read in 0 bytes")
-    #     payload = pickle.loads(buffer)
-    #     return self.parse_ack(payload)
-
-    # def parse_ack(self, payload: dict[str, str | bytes | bool]) -> bool | int | None:
-    #     """Parse acknowledgement and return expected response"""
-    #     status = payload.get("status", "")
-    #     if status == "success":
-    #         self.log.info(
-    #             f"Success: Received Payload for {payload.get('method', '')} {payload.get('key', '')}"
-    #         )
-    #         method = payload.get("method", "")
-
-    #         match method:
-    #             case "create":
-    #                 return payload.get("ident", None)
-    #             case "delete":
-    #                 return True
-    #             case "modify":
-    #                 return payload.get("ident", None)
-    #             case "get_event":
-    #                 return payload.get("event", None)
-    #             case "list_events":
-    #                 return payload.get("calendar", {})
-    #             case "who_is_leader":
-    #                 return payload.get("host", ""), payload.get("port", 0)
-    #             case "register_and_sync":
-    #                 return payload.get("logical_clock", 0), payload.get("calendar", {})
-    #             case _:
-    #                 raise Exception(f"Unknown method in ACK: {method}")
-    #     elif status == "failure":
-    #         raise Exception(f"Error: {payload.get('error', 'unknown error')}")
-    #     else:
-    #         raise Exception(f"Malformed ACK: missing status")
-    #     return None
-
     def __enter__(self) -> Self:
         return self
 
@@ -352,30 +273,29 @@ def main() -> None:
         one_hour_later = int(
             (datetime.now(timezone.utc) + timedelta(hours=1)).timestamp()
         )
-        for i in range(25):
-            id = client.create(
-                f"progress report{i}",
-                start=now_utc,
-                end=one_hour_later,
-                location="",
-                description="",
-            )
-            client.delete(id)
-            id = client.create(
-                f"progress report{i}",
-                start=now_utc,
-                end=one_hour_later,
-                location="",
-                description="",
-            )
-            client.modify(
-                id,
-                f"progress report{i}",
-                start=now_utc,
-                end=one_hour_later,
-                location=str(i),
-                description=str(i),
-            )
+        id = client.create(
+            f"progress report",
+            start=now_utc,
+            end=one_hour_later,
+            location="",
+            description="",
+        )
+        client.delete(id)
+        id = client.create(
+            f"progress report",
+            start=now_utc,
+            end=one_hour_later,
+            location="",
+            description="",
+        )
+        client.modify(
+            id,
+            f"progress report",
+            start=now_utc,
+            end=one_hour_later,
+            location="fitz",
+            description="fitz",
+        )
 
 
 if __name__ == "__main__":
