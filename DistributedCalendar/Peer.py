@@ -69,6 +69,7 @@ class Peer:
         )
 
         self.own_port = self.server.port
+        self.own_host = self.server.host
         self._bootstrap()
 
         threading.Thread(target=self._server_thread(), daemon=True)
@@ -147,6 +148,7 @@ class Peer:
         else:
             self.log.info(f"Couldn't contact leader.")
             with self.election_cv:
+                self.log.info(f"[ Main ] Taken election CV.")
                 self.do_election = True
                 self.election_cv.notify()
 
@@ -406,6 +408,7 @@ class Peer:
         """Target for a thread that waits for the server or main threads to signal that election needs to happen."""
         while True:
             with self.election_cv:
+                self.log.info(f"[ Election ] Taken election CV.")
                 while not self.do_election:
                     self.election_cv.wait()
                 self.log.info("Calling an election...")

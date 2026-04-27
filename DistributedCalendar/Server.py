@@ -97,6 +97,7 @@ class Server:
         self.broadcast_sender.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         broadcast_receiver = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         broadcast_receiver.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        broadcast_receiver.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
         broadcast_receiver.bind(("", self.BROADCAST_PORT))
 
         # Initialize server socket and socket selector.
