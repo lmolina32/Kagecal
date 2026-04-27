@@ -51,7 +51,8 @@ class Application:
         # fmt: off
         match command:
             case "help" | "?":  self._help(args)
-            case "join":        self._local_join(*args) #self._join(*args)
+            case "local_join":  self._local_join(*args) 
+            case "join":        self._join(*args) #self._join(*args)
             case "list":        self._list()
             case "create":      self._create(args)
             case "remove":      self._remove(*args)
@@ -63,9 +64,20 @@ class Application:
         # fmt: on
 
     def _join(self, calendar_name: str):
+        """Joins decentralized calendar based on calendar identifier. This function request user input for peer identifier in order to know who is joining the netwrok"""
         # TODO: Join decentralized calendar nodes
+        if calendar_name in self.calendars:
+            print(f"Already joined calendar {calendar}")
+            return
+        peer_ident = ""
+        while True:
+            peer_ident = input("Peer Identifier: ")
+            if peer_ident:
+                break
 
-        pass
+        self.calendars[calendar_name] = Peer(
+            calendar_ident=calendar_name, peer_ident=peer_ident
+        )
 
     def _local_join(self, calendar_name: str):
         """Joins a local calendar as opposed to a decentralized calendar. This is for testing the user interface while the decentralized version is still under development. Most of this code should be portable to the _join method."""
