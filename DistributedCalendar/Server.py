@@ -231,6 +231,8 @@ class Server:
                 data = clientsock.recv(self.BUFFER_SIZE)
             except socket.timeout:
                 raise ValueError("Timeout exceeded on call to recv.")
+            except socket.error:
+                raise ValueError("Connection forcibly closed by client.")
             header += data
 
         delim_idx = header.index(b"\n")
@@ -245,6 +247,8 @@ class Server:
                 data = clientsock.recv(self.BUFFER_SIZE)
             except socket.timeout:
                 raise ValueError("Timeout exceeded on call to recv.")
+            except socket.error:
+                raise ValueError("Connection forcibly closed by client.")
             read_amt += len(data)
             buffer.append(data)
 
