@@ -200,8 +200,6 @@ class Server:
                             "status": "failure",
                             "error": str(e),
                         }, ServerFlags.NONE
-                    if method in {"create", "delete", "modify"}:
-                        self._broadcast_clock()
 
         # 3. Send ack.
         pickled_msg = pickle.dumps(response)
@@ -214,6 +212,11 @@ class Server:
             self._close_socket(clientsock)
         except socket.timeout:
             self.log.warn(f"Ack to {clientsock} timed out.")
+
+        # Broadcast updated logical clock if necessary
+        if self.mode == ServerMode.LEADER and method in {"create", "delete", "modify"}:
+            self._broadcast_clock()
+
         return flags
 
     def _get_rpc(self, clientsock: Socket, use_timeout: bool = True) -> RPC:
@@ -382,6 +385,13 @@ class Server:
             "logical_clock": self.persistence.get_logical_clock(),
         }, ServerFlags.NEW_LEADER
 
+    def _election(self, method: str, params: dict) -> tuple[dict, ServerFlags]:
+        """RPC handler that responds to ELECTION messages. Responds with an OK and sets the DO_ELECTION flag."""
+        return {
+            "method": method,
+            "status": "success",
+        }, ServerFlags.DO_ELECTION
+
     def _validate_rpc(self, rpc: RPC) -> None:
         """Raises a ValueError if params is an invalid RPC."""
         return
@@ -407,7 +417,7 @@ class Server:
 
     def set_coordinate(self, value: bool):
         """Sets the coordinate flag. If the flag is True, the server will only respond to COORDINATE messages, and will ignore all others."""
-        self.coordinate = value 
+        self.coordinate = value
 
     def update(self, events: dict[int, Event], logical_clock: int):
         """Updates the calendar state to match the passed in event list and clock. Analogous to _sync."""
