@@ -71,7 +71,7 @@ class Peer:
         )
         self.log.debug(f"{self.peer_ident} found {len(peer_list)} peers")
 
-        # Peer is the only one in the network, it becomes the peer
+        # Peer is the only one in the network, it becomes the leader
         if not peer_list:
             self.server.set_mode(ServerMode.LEADER)
             self.server.leader_host = self.own_host
@@ -93,6 +93,7 @@ class Peer:
             # Attempt to make connection, if succesful update leaders host & port, then set peer to follower
             try:
                 client = Client(
+                    self.peer_ident,
                     target_host,
                     target_port,
                     self.own_host,
@@ -121,6 +122,7 @@ class Peer:
         # TODO: should this be a loop, loop until leader is elected then make contact to sync. If we do loop, cover edge case were this peer becomes the leader
         try:
             client = Client(
+                self.peer_ident,
                 self.server.leader_host,
                 self.server.leader_port,
                 self.own_host,
@@ -214,7 +216,13 @@ class Peer:
         higher_pids.sort(key=lambda x: x["lastheardfrom"], reverse=True)
         higher_pids.sort(key=lambda x: x["PID"], reverse=True)
         for entry in higher_pids:
-            client = Client(entry["host"], entry["port"], self.own_host, self.own_port)
+            client = Client(
+                self.peer_ident,
+                entry["host"],
+                entry["port"],
+                self.own_host,
+                self.own_port,
+            )
             if client.call_election():
                 # a. If OK received, wait for COORDINATE message on server forever. (In the event all peers die at this point and never recover, the application will have to be restarted by the user.)
 
@@ -227,7 +235,11 @@ class Peer:
             clients = []
             for entry in lower_pids:
                 client = Client(
-                    entry["host"], entry["port"], self.own_host, self.own_port
+                    self.peer_ident,
+                    entry["host"],
+                    entry["port"],
+                    self.own_host,
+                    self.own_port,
                 )
                 logical_clock = client.coordinate()
                 if logical_clock > self.logical_clock:
