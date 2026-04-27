@@ -82,7 +82,7 @@ class Server:
         self.leader_host = leader_host
         self.leader_port = leader_port
         self.coordinate = False
-        self.RPC_METHODS: dict[str, Callable[[str, dict], dict]] = {
+        self.RPC_METHODS: dict[str, Callable[[str, dict], tuple]] = {
             "create": self._create,
             "delete": self._delete,
             "modify": self._modify,
