@@ -8,10 +8,11 @@ import socket
 import logging
 import threading
 from urllib.request import urlopen
-from typing import TypedDict
+from typing import TypedDict, Optional
 
 from .Server import Server, ServerMode, ServerFlags
 from .Client import Client
+from .PersistantCalendar import PersistantCalendar
 
 log_format = "[%(levelname)s %(asctime)s %(module)s:%(lineno)d] %(message)s"
 logging.basicConfig(
@@ -33,22 +34,105 @@ class CatalogEntry(TypedDict):
 
 
 class Peer:
-    def __init__(self, calendar_ident: str, peer_ident: str) -> None:
+    def __init__(
+        self,
+        calendar_ident: str,
+        peer_ident: str,
+    ) -> None:
         self.calendar_ident: str = calendar_ident
         self.peer_ident: str = peer_ident
         self.logical_clock: int = 0
         self.own_port: int = 0
         self.own_host: str = socket.gethostname()
-        self.leaders_address: Tuple[str, int] = ("", 0)
+        self.leaders_address: tuple[str, int] = ("", 0)
         self.log = logging.getLogger()
-        self.server: Server = self.startup()
         self.pid = os.getpid()
 
         self.election_happening = False
         self.election_cv = threading.Condition()
         self.pause_server = threading.Event()
 
-    def _get_catalog(self) -> List[CatalogEntry]:
+        ckpt: str = f"calendar_{self.calendar_ident}_{self.peer_ident}.ckpt"
+        txn: str = f"calendar_{self.calendar_ident}_{self.peer_ident}.txn"
+
+        time.sleep(time.time() % random.randint(1, 5))
+        self.server: Server = Server(
+            calendar_ident=self.calendar_ident,
+            peer_ident=self.peer_ident,
+            ckpt_path=ckpt,
+            txn_path=txn,
+            leader_host="",
+            leader_port=0,
+        )
+        self.own_port = self.server.port
+
+        peer_list = sorted(
+            self._get_catalog(), key=lambda x: x["lastheardfrom"], reverse=True
+        )
+        self.log.debug(f"{self.peer_ident} found {len(peer_list)} peers")
+
+        # Peer is the only one in the network, it becomes the peer
+        if not peer_list:
+            self.server.set_mode(ServerMode.LEADER)
+            self.server.leader_host = self.own_host
+            self.server.leader_port = self.own_port
+            self.log.info(f"{self.peer_ident} is the leader")
+            return
+
+        # Query Peers for leaders address
+        for peer_entry in peer_list:
+            target_host, target_port, target_peer_ident = (
+                peer_entry["host"],
+                peer_entry["port"],
+                peer_entry["peer_ident"],
+            )
+            self.log.debug(
+                f"Attempting connection to {target_peer_ident} at {target_host}:{target_port}"
+            )
+
+            # Attempt to make connection, if succesful update leaders host & port, then set peer to follower
+            try:
+                client = Client(
+                    target_host,
+                    target_port,
+                    self.own_host,
+                    self.own_port,
+                )
+                # TODO: check if this is the current output of who is leader
+                self.server.leader_host, self.server.leader_port = (
+                    client.who_is_leader()
+                )
+                self.log.info(
+                    f"Leader found at {self.server.leader_host}:{self.server.leader_port}"
+                )
+                self.server.set_mode(ServerMode.FOLLOWER)
+                break
+            except ConnectionError:
+                self.log.error(
+                    f"Cannot reach peer {target_peer_ident} at {target_port}:{target_host}"
+                )
+
+        # Queried all Peers, got no response, trigger and election and win.
+        else:
+            # TODO: we talked about just calling the election, for ease of mind but wouldn't this just reiterate thorugh all peers again that it couldn't contact?
+            self.call_election()
+
+        # Got leader address syncronize with leader
+        # TODO: should this be a loop, loop until leader is elected then make contact to sync. If we do loop, cover edge case were this peer becomes the leader
+        try:
+            client = Client(
+                self.server.leader_host,
+                self.server.leader_port,
+                self.own_host,
+                self.own_port,
+            )
+            # TODO: ensure when calling sync on the leader this is the tuple order returned
+            leaders_calendar, logcial_clock = client.sync()
+            self.server.update(leaders_calendar, logical_clock)
+        except ConnectionError:
+            self.call_election()
+
+    def _get_catalog(self) -> list[CatalogEntry]:
         """Retrieves all peers registered to the ND catalog server for this calendar."""
         nd_catalog: str = "http://catalog.cse.nd.edu:9097/query.json"
         try:
@@ -73,122 +157,15 @@ class Peer:
 
         return peers
 
-    def startup(self) -> Server:
-        """
-        Starts the Peer server component. Two paths could occur:
-        - The peer becomes the leader, all traffic will flow through it
-        - The peer becomes a follower, will contact the leader for all CRUD operations
-
-        Returns:
-            Server: An instance of the peers server
-        """
-        # TODO: Need to make more robust
-        ckpt: str = f"calendar_{self.calendar_ident}_{self.peer_ident}.ckpt"
-        txn: str = f"calendar_{self.calendar_ident}_{self.peer_ident}.txn"
-
-        time.sleep(time.time() % random.randint(1, 5))
-
-        server = Server(
-            calendar_ident=self.calendar_ident,
-            peer_ident=self.peer_ident,
-            ckpt_path=ckpt,
-            txn_path=txn,
-        )
-
-        self.own_host = server.host
-        self.own_port = server.port
-
-        peer_list = self.discovery_peers()
-        self.log.info(f"{self.peer_ident} found {len(peer_list)} peers")
-        # Staring off the network
-        if not peer_list:
-            server.mode = ServerMode.LEADER
-            server.leaders_address = (self.own_host, self.own_port)
-            self.log.info(f"{self.peer_ident} is the leader")
-            return server
-
-        # Query Peers for leaders address
-        for host, port, name in peer_list:
-            self.log.info(f"Attempting connection with {name}, {host}:{port}")
-            try:
-                with Client(
-                    client_name=self.peer_ident,
-                    host=host,
-                    port=port,
-                    own_host=self.own_host,
-                    own_port=self.own_port,
-                ) as client:
-                    # TODO: replacing entire calendar state, could be done another way doing a diff of the calendar
-                    leader_host, leader_port = client.who_is_leader()
-                    server.leaders_address = (leader_host, leader_port)
-                    self.log.info(f"Found leaders address: {leader_host}:{leader_port}")
-                    break
-            # TODO: maybe have costume errors.
-            except Exception as e:
-                self.log.info(f"Cannot reach peer: {name}, {host}:{port}")
-                pass
-        if server.leaders_address == ("", 0):
-            # should trigger election here
-            self.log.error(
-                "CURRENTLY SHOULD NOT TRIGGER OUR CODE IS CHOPPED AND CHUDDED"
-            )
-            return server
-
-        # Get leader address, if not responding start election
-        try:
-            with Client(
-                client_name=self.peer_ident,
-                host=server.leaders_address[0],
-                port=server.leaders_address[1],
-                own_host=self.own_host,
-                own_port=self.own_port,
-            ) as client:
-                # current idea: have leader return logical clock, leader calendar, set the logical clock + leaders calendar
-                # idea -> do i expose the persistence calendar a level up, e.g declare it on this module, then pass it down to the server, e.g have the same object in memory but can operate on it without doing self.sever.persistence.
-                logical_clock, leaders_calendar = client.register_and_sync(
-                    self.own_host, self.own_port
-                )
-                # yuck
-                server.persistence.calendar.events = leaders_calendar
-                server.persistence._logical_clock = logical_clock
-                server.mode = ServerMode.FOLLOWER
-                self.log.info(
-                    f"Fully synced with leader {len(server.persistence.calendar.events)}"
-                )
-        except Exception as e:
-            # TODO: Start election
-            pass
-
-        return server
-
-    def run(self) -> None:
-        try:
-            while True:
-                self.server.serve()
-                # TODO: add logic for when not polling
-        except KeyboardInterrupt:
-            self.log.info(f"{'-'*50}\nClosing down Peer")
-        finally:
-            ...
-            # self.server._cleanup()
-
-    def send_request(self) -> None:
-        # TODO: this theoretically will be called by the CLI, determine correct args
-        # TODO: have logic if you are the leader (need a resync)
-        # TODO: have logic if you are the follower (send to leader)
-        if self.server.mode == ServerMode.LEADER:
-            ...
-            # TODO: should we let the peer add the calender then resync with others
-            # Idea: add to calendar, then have a background thread send to all peers in the system.
-            return
-
-        # TODO: follower logic, use Client to send request to leader
-        ...
-
     def create(self) -> Optional[int]:
         """If this peer is the leader, takes the lock on the calendar and updates it directly. Otherwise, uses the RPC stub on the client to update the calendar on the server, then syncs with the server."""
-
+        # grab the server look
+        # fail release the lock,
         pass
+
+    def delete(self): ...
+
+    def modify(self): ...
 
     # TODO: Write all the calendar stubs, make the mutating ones wait on the election condition variable.
 
@@ -240,7 +217,8 @@ class Peer:
             client = Client(entry["host"], entry["port"], self.own_host, self.own_port)
             if client.call_election():
                 # a. If OK received, wait for COORDINATE message on server forever. (In the event all peers die at this point and never recover, the application will have to be restarted by the user.)
-                self.server.await_coordinate()
+
+                self.server.set_coordinate(True)
                 break
         else:
             # b. If no OK received from any peer with higher PID (or if there are no peers with a higher PID), become the leader and send COORDINATE. Check the logical clock on all COORDINATE ACKs, and SYNC with highest one.
