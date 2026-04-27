@@ -6,7 +6,7 @@ import selectors
 import pickle
 import logging
 import threading
-from enum import Enum
+from enum import Enum, IntEnum
 from typing import Optional, Callable, Any, TypedDict
 
 from .Client import Client
@@ -30,7 +30,7 @@ class ServerMode(Enum):
     LEADER = 1
 
 
-class ServerFlags(Enum):
+class ServerFlags(IntEnum):
     NONE = 0
     DO_SYNC = 1 << 0
     """Indicates that the peer should sync with the leader."""
@@ -257,7 +257,7 @@ class Server:
             case (self.host, self.port):
                 # This node is the leader, and the broadcast came from itself.
                 return 0
-            case self.leaders_address:
+            case (self.leader_host, self.leader_port):
                 # Broacast came from leader. Check if sync necessary
                 # if addr == self.leaders_address:
                 try:
