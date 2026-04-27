@@ -78,6 +78,7 @@ class Application:
         self.calendars[calendar_name] = Peer(
             calendar_ident=calendar_name, peer_ident=peer_ident
         )
+        self.curr_calendar = calendar_name
         print(f"Successfully joined calendar {calendar_name}.")
 
     def _local_join(self, calendar_name: str):
