@@ -50,7 +50,6 @@ class RPC(TypedDict):
     params: dict[str, str | int]
 
 
-# TODO: update type hints
 class Server:
     BUFFER_SIZE = 1 << 12  # 4 KiB
     CLIENT_SOCK_TIMEOUT = 5  # Seconds
@@ -103,8 +102,8 @@ class Server:
         self.host, self.port = servsock.getsockname()
 
         # Set up UDP broadcast sockets.
-        broadcast_sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        broadcast_sender.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        self.broadcast_sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.broadcast_sender.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         broadcast_receiver = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         receiver.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         receiver.bind(("", self.BROADCAST_PORT))
@@ -203,6 +202,8 @@ class Server:
                             "status": "failure",
                             "error": str(e),
                         }, ServerFlags.NONE
+                    if method in {"create", "delete", "modify"}:
+                        self._broadcast_clock()
 
         # 3. Send ack.
         pickled_msg = pickle.dumps(response)
@@ -271,16 +272,18 @@ class Server:
                 # Came from some other node. Ignore.
                 return 0
 
-    def _broadcast_clock(self, sender: Socket) -> None:
+    def _broadcast_clock(self) -> None:
         """Broadcasts to all nodes a dict of the form {"calendar_ident": str, "logical_clock": int }. The calendar ident is to prevent cross talk from several concurrently running calendars."""
         # TODO: This could cause a problem if the calendar ident is sufficiently long that it exceeds the MTU of the network nodes, causing the UDP packet to be fragmented and possibly arrive out of order.
         message = {
             "calendar_ident": self.calendar_ident,
-            "logical_clock": self.logical_clock,
+            "logical_clock": self.persistence.get_logical_clock(),
         }
-        message_bytes = json.dumps(message)
+        message_bytes = json.dumps(message).encode("utf-8")
         try:
-            sender.sendto(message_bytes, ("<broadcast>", self.BROADCAST_PORT))
+            self.broadcast_sender.sendto(
+                message_bytes, ("<broadcast>", self.BROADCAST_PORT)
+            )
         except OSError:
             self.log.warn("Failed to broadcast clock.")
 
