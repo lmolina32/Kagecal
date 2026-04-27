@@ -163,9 +163,6 @@ class PersistantCalendar:
             with open(self.CKPT_PATH, "rb") as file:
                 self.calendar.events, self._logical_clock = pickle.load(file)
 
-        self.logger.info(
-            f"[Restore] Restored calendar with {len(self.calendar.events)} events"
-        )
         # Replay transaction log, skipping the trailing entry if it is malformed.
         if os.path.isfile(self.TXN_LOG_PATH):
             with open(self.TXN_LOG_PATH, "rb") as txn_log:

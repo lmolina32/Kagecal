@@ -107,7 +107,9 @@ class Server:
         broadcast_receiver.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         broadcast_receiver.bind(("", self.BROADCAST_PORT))
 
-        self.log.info(f"{self.peer_ident} listening on \033[32m{self.port}\033[0m")
+        self.log.info(
+            f"{self.peer_ident} listening at \033[32m{self.host} {self.port}\033[0m"
+        )
 
         # Set up socket selector.
         # See https://docs.python.org/3/library/selectors.html
@@ -444,11 +446,12 @@ def main() -> None:
         peer_ident=peer_ident,
         ckpt_path=ckpt,
         txn_path=txn,
+        leader_host="",
+        leader_port=0,
     )
 
     try:
         while True:
-            # TODO: can add election logic here potentially (e.g handle events then handle election)
             server.serve()
     except KeyboardInterrupt:
         server.log.info(f"\n{'-'*50}\nShutting down server")
