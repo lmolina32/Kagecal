@@ -71,9 +71,10 @@ class Peer:
         self.own_port = self.server.port
         self.own_host = self.server.host
         self._bootstrap()
-
-        threading.Thread(target=self._server_thread(), daemon=True)
-        threading.Thread(target=self._election_thread(), daemon=True)
+        server_thread = threading.Thread(target=self._server_thread, daemon=True)
+        election_thread = threading.Thread(target=self._election_thread, daemon=True)
+        server_thread.start()
+        election_thread.start()
 
     def _bootstrap(self) -> None:
         # TODO: add more detail docstring
@@ -303,6 +304,7 @@ class Peer:
 
     def _server_thread(self):
         """Target for the thread created by start_server."""
+        self.log.info("Server thread started.")
         while True:
             # 1. Serve a round of requests.
             flags = self.server.serve()
@@ -416,6 +418,7 @@ class Peer:
 
     def _election_thread(self):
         """Target for a thread that waits for the server or main threads to signal that election needs to happen."""
+        self.log.info("Server thread started.")
         while True:
             with self.election_cv:
                 self.log.info(f"[ Election ] Taken election CV.")

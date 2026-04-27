@@ -78,6 +78,7 @@ class Application:
         self.calendars[calendar_name] = Peer(
             calendar_ident=calendar_name, peer_ident=peer_ident
         )
+        print(f"Successfully joined calendar {calendar_name}.")
 
     def _local_join(self, calendar_name: str):
         """Joins a local calendar as opposed to a decentralized calendar. This is for testing the user interface while the decentralized version is still under development. Most of this code should be portable to the _join method."""
