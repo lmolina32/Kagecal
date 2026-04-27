@@ -154,7 +154,7 @@ class Client:
     def sync(self) -> tuple[dict[int, Event], int]:
         """Retrieves the current calendar state and logical clock from the target peer. On success, returns a tuple containing the event list and logical clock. On failure, raises a TimeoutError."""
         message = {
-            "method": "who_is_leader",
+            "method": "sync",
             "peer_ident": self.peer_ident,
             "params": {},
         }

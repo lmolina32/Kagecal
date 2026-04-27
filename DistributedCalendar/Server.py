@@ -85,6 +85,7 @@ class Server:
             "delete": self._delete,
             "modify": self._modify,
             "who_is_leader": self._who_is_leader,
+            "sync": self._sync,
             "coordinate": self._coordinate,
             "election": self._election,
         }
