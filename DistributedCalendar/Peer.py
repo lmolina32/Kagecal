@@ -13,7 +13,7 @@ from typing import TypedDict, Optional
 from .Server import Server, ServerMode, ServerFlags
 from .Client import Client
 from .PersistantCalendar import PersistantCalendar
-from .Calendar import Repeats
+from .Calendar import Repeats, Event
 
 log_format = "[%(levelname)s %(asctime)s %(module)s:%(lineno)d] %(message)s"
 logging.basicConfig(
@@ -301,6 +301,18 @@ class Peer:
                 self.server.broadcast_clock()
 
         return event_id
+
+    def get_event(self, ident) -> Optional[Event]:
+        """grab calendar lock and perform read"""
+        with self.server.calendar_lock:
+            event = self.server.persistence.get_event(ident)
+        return event
+
+    def list_events(self) -> dict[int, Event]:
+        """grab calendar lock and perform read"""
+        with self.server.calendar_lock:
+            event = self.server.persistence.list_events()
+        return event
 
     def _server_thread(self):
         """Target for the thread created by start_server."""
