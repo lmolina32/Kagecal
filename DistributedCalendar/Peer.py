@@ -42,26 +42,23 @@ class Peer:
     ) -> None:
         self.calendar_ident: str = calendar_ident
         self.peer_ident: str = peer_ident
-        self.logical_clock: int = 0
-        self.own_port: int = 0
-        self.own_host: str = socket.gethostname()
 
         self.log = logging.getLogger()
         self.pid = os.getpid()
 
+        # This CV is set by the server and client threads and waited on by the election thread. Set this True when an election needs to happen.
         self.do_election = False
         self.election_cv = threading.Condition()
 
-        self.new_leader = False
-        self.coordinate_cv = threading.Condition()
-
-        self.pause_server = threading.Event()
-        self._server_thread: Optional[threading.Thread] = None
+        # This CV is set by the server and waitedon by the client thread. Set client to None when an election needs to happen, and wait on client to be set before doing any client operations.
+        self.client = None
+        self.client_cv = threading.Condition()
 
         ckpt: str = f"calendar_{self.calendar_ident}_{self.peer_ident}.ckpt"
         txn: str = f"calendar_{self.calendar_ident}_{self.peer_ident}.txn"
 
         time.sleep(time.time() % random.randint(1, 5))
+
         self.server: Server = Server(
             calendar_ident=self.calendar_ident,
             peer_ident=self.peer_ident,
@@ -70,9 +67,8 @@ class Peer:
             leader_host="",
             leader_port=0,
         )
-        self.own_port = self.server.port
-        self.client = None
 
+        self.own_port = self.server.port
         self._bootstrap()
 
         threading.Thread(target=self._server_thread(), daemon=True)
@@ -102,6 +98,10 @@ class Peer:
                 peer_entry["port"],
                 peer_entry["peer_ident"],
             )
+
+            if target_peer_ident == self.peer_ident:
+                continue
+
             self.log.debug(
                 f"Attempting connection to {target_peer_ident} at {target_host}:{target_port}"
             )
@@ -120,13 +120,14 @@ class Peer:
                 self.server.set_mode(ServerMode.FOLLOWER)
 
                 try:
-                    self.client = Client(
-                        self.peer_ident,
-                        leader_host,
-                        leader_port,
-                        self.own_host,
-                        self.own_port,
-                    )
+                    with self.client_cv:
+                        self.client = Client(
+                            self.peer_ident,
+                            leader_host,
+                            leader_port,
+                            self.own_host,
+                            self.own_port,
+                        )
                 except ConnectionError:
                     continue
 
@@ -144,18 +145,24 @@ class Peer:
 
         # Queried all Peers, got no response, trigger and election and win.
         else:
-            self.call_election()
+            self.log.info(f"Couldn't contact leader.")
+            with self.election_cv:
+                self.do_election = True
+                self.election_cv.notify()
 
-        # Got leader address syncronize with leader
-        # TODO: should this be a loop, loop until leader is elected then make contact to sync. If we do loop, cover edge case were this peer becomes the leader
-        while True:
-            try:
-                calendar, logical_clock = self.client.sync()
-                self.server.update(calendar, logical_clock)
-            except ConnectionError:
-                self.call_election()
-                if self.server.mode == ServerMode.LEADER:
-                    break
+        # Syncronize with leader.
+        if self.server.mode == ServerMode.FOLLOWER:
+            with self.client_cv:
+                while not self.client:
+                    self.client_cv.wait()
+                try:
+                    calendar, logical_clock = self.client.sync()
+                    self.server.update(calendar, logical_clock)
+                except ConnectionError:
+                    with self.election_cv, self.client_cv:
+                        self.client = None
+                        self.do_election = True
+                        self.election_cv.notify()
 
     def _get_catalog(self) -> list[CatalogEntry]:
         """Retrieves all peers registered to the ND catalog server for this calendar."""
@@ -199,15 +206,9 @@ class Peer:
             with self.server.calendar_lock:
                 match self.server.mode:
                     case ServerMode.FOLLOWER:
-                        # TODO: should we just keep open one socket connection for the leader?
-                        client = Client(
-                            self.peer_ident,
-                            self.server.leader_host,
-                            self.server.leader_port,
-                            self.own_host,
-                            self.own_port,
+                        self.client.create(
+                            name, start, end, description, location, repeats
                         )
-                        client.create(name, start, end, description, location, repeats)
                         event_id = self.server.persistence.create(
                             name, start, end, description, location, repeats
                         )
@@ -216,9 +217,12 @@ class Peer:
                             name, start, end, description, location, repeats
                         )
                         self.server.broadcast_clock()
-        except TimeoutError:
+        except ConnectionError:
             self.log.error("Leader unreachable during create(); calling election")
-            self.call_election()
+            with self.election_cv, self.client_cv:
+                self.client = None
+                self.do_election = True
+                self.election_cv.notify()
         return event_id
 
     def delete(self, ident: int) -> None:
@@ -239,9 +243,12 @@ class Peer:
                     case ServerMode.LEADER:
                         self.server.persistence.delete(ident)
                         self.server.broadcast_clock()
-        except TimeoutError:
+        except ConnectionError:
             self.log.error("Leader unreachable during delete(); calling election")
-            self.call_election()
+            with self.election_cv, self.client_cv:
+                self.client = None
+                self.do_election = True
+                self.election_cv.notify()
 
     def modify(
         self,
@@ -278,7 +285,10 @@ class Peer:
                         self.server.broadcast_clock()
         except ConnectionError:
             self.log.error("Leader unreachable during modify(); calling election")
-            self.call_election()
+            with self.election_cv, self.client_cv:
+                self.client = None
+                self.do_election = True
+                self.election_cv.notify()
         return updated_id
 
     def _server_thread(self):
@@ -298,19 +308,13 @@ class Peer:
             if flags & ServerFlags.DO_SYNC:
                 # Sync is a request to the leader, so it could fail, triggering an election.
                 try:
-                    client = Client(
-                        self.peer_ident,
-                        self.server.leader_host,
-                        self.server.leader_port,
-                        self.own_host,
-                        self.own_port,
-                    )
-                    calendar, clock = client.sync()
+                    calendar, clock = self.client.sync()
                     self.server.update(calendar, clock)
                 except ConnectionError:
-                    self.log.error("Sync with leader failed, calling election")
-                    with self.election_cv:
+                    with self.election_cv, self.client_cv:
+                        self.client = None
                         self.do_election = True
+                        self.election_cv.notify()
 
             if flags & ServerFlags.NEW_LEADER:
                 leader_host, leader_port = (
@@ -318,19 +322,23 @@ class Peer:
                     self.server.leader_port,
                 )
                 try:
-                    self.client = Client(
-                        self.peer_ident,
-                        leader_host,
-                        leader_port,
-                        self.own_host,
-                        self.own_port,
-                    )
-                    with self.coordinate_cv:
+                    with self.client_cv:
+                        self.client = Client(
+                            self.peer_ident,
+                            leader_host,
+                            leader_port,
+                            self.own_host,
+                            self.own_port,
+                        )
+                        events, clock = self.client.sync()
+                        self.server.update(events, clock)
                         self.new_leader = True
-                        self.coordinate_cv.notify()
+                        self.client_cv.notify()
                 except ConnectionError:
-                    with self.election_cv:
+                    with self.election_cv, self.client_cv:
+                        self.client = None
                         self.do_election = True
+                        self.election_cv.notify()
 
     def call_election(self):
         """Initiates (or continues) the leader election protocol. A new client to the new leader is created."""
@@ -361,12 +369,14 @@ class Peer:
             if client.call_election():
                 # a. If OK received, wait for COORDINATE message on server forever. (In the event all peers die at this point and never recover, the application will have to be restarted by the user.)
                 self.server.set_coordinate(True)
-                with self.coordinate_cv:
-                    while not self.new_leader:
-                        self.coordinate_cv.wait()
+                with self.client_cv:
+                    while not self.client:
+                        self.client_cv.wait()
+                self.log.info("Received coordinate.")
                 break
         else:
             # b. If no OK received from any peer with higher PID (or if there are no peers with a higher PID), become the leader and send COORDINATE. Check the logical clock on all COORDINATE ACKs, and SYNC with highest one.
+            self.log.info("Won election.")
             self.server.set_mode(ServerMode.LEADER)
 
             clients = []
@@ -379,7 +389,7 @@ class Peer:
                     self.own_port,
                 )
                 logical_clock = client.coordinate()
-                if logical_clock > self.logical_clock:
+                if logical_clock > self.server.get_logical_clock():
                     clients.append((logical_clock, client))
 
             if clients:
@@ -398,41 +408,9 @@ class Peer:
             with self.election_cv:
                 while not self.do_election:
                     self.election_cv.wait()
+                self.log.info("Calling an election...")
                 self.call_election()
                 self.do_election = False
-
-    # def start_server(self):
-    #     """Creates a background thread that serves incoming requests to the peer's server, and syncs the local calendar with the leader's calendar in the event of an update."""
-    #     # TODO: Still need to add actual background thread at init
-    #     if self._server_thread is not None and self._server_thread.is_alive():
-    #         self.log.warning(
-    #             "start_server() called when server thread is still running"
-    #         )
-    #         return
-
-    #     self.pause_server.clear()
-    #     self._server_thread = threading.Thread(target=self._serve, daemon=True)
-    #     self._server_thread.start()
-    #     self.log.info(f"Server thread start for peer {self.peer_ident}")
-
-    # def stop_server(self):
-    #     """Stops a background thread that serves incoming requests to the peer's server, and syncs the local calendar with the leader's calendar in the event of an update."""
-    #     self.pause_server.set()
-    #     self._server_thread.join()
-    #     # should this be a loop and check if we are leader or recieve sink to break out
-    #     try:
-    #         client = Client(
-    #             self.peer_ident,
-    #             self.server.leader_host,
-    #             self.server.leader_port,
-    #             self.own_host,
-    #             self.own_port,
-    #         )
-    #         calendar, lock = client.sync()
-    #         self.server.update(calendar, lock)
-    #     except TimeoutError:
-    #         self.call_election()
-    #     self.log.info(f"server Thread stopped for peer {self.peer_ident}")
 
 
 if __name__ == "__main__":
@@ -441,4 +419,3 @@ if __name__ == "__main__":
         sys.exit(1)
 
     peer = Peer(calendar_ident=sys.argv[1], peer_ident=sys.argv[2])
-    peer.run()

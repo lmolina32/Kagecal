@@ -92,18 +92,18 @@ class Server:
         self.mode: ServerMode = ServerMode.FOLLOWER
         self.mode_lock = threading.Lock()
 
-        # Initialize server socket and socket selector.
-        servsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        servsock.bind((socket.gethostname(), 0))
-        servsock.listen(self.MAX_CONCURRENCY)
-        self.host, self.port = servsock.getsockname()
-
         # Set up UDP broadcast sockets.
         self.broadcast_sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.broadcast_sender.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         broadcast_receiver = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         broadcast_receiver.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         broadcast_receiver.bind(("", self.BROADCAST_PORT))
+
+        # Initialize server socket and socket selector.
+        servsock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        servsock.bind((socket.gethostname(), 0))
+        servsock.listen(self.MAX_CONCURRENCY)
+        self.host, self.port = servsock.getsockname()
 
         self.log.info(
             f"{self.peer_ident} listening at \033[32m{self.host} {self.port}\033[0m"
@@ -433,6 +433,9 @@ class Server:
         """Sets the server mode to either FOLLOWER or LEADER."""
         with self.mode_lock:
             self.mode = mode
+
+    def get_logical_clock(self) -> int:
+        return self.get_logical_clock()
 
 
 def main() -> None:
