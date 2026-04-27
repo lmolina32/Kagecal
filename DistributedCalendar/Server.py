@@ -57,6 +57,7 @@ class Server:
     CLOCK_BROADCAST = 60  # Seconds
     BROADCAST_PORT = 9375
     BROADCAST_MAXLEN = 1 << 10
+    MAX_CONCURRENCY = 100
 
     def __init__(
         self,
@@ -85,11 +86,8 @@ class Server:
             "create": self._create,
             "delete": self._delete,
             "modify": self._modify,
-            "get_event": self._get_event,
-            "list_events": self._list_events,
             "who_is_leader": self._who_is_leader,
             "coordinate": self._coordinate,
-            "election": self._election,
         }
 
         self.mode: ServerMode = ServerMode.FOLLOWER
@@ -105,8 +103,8 @@ class Server:
         self.broadcast_sender = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         self.broadcast_sender.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         broadcast_receiver = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        receiver.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        receiver.bind(("", self.BROADCAST_PORT))
+        broadcast_receiver.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        broadcast_receiver.bind(("", self.BROADCAST_PORT))
 
         self.log.info(f"{self.peer_ident} listening on \033[32m{self.port}\033[0m")
 
@@ -162,7 +160,7 @@ class Server:
         """Socket selector callback that handles an incoming RPC event from a registered client socket."""
         # 1. Attempt to read in the entire RPC. If we get zero, have to close and unregister the client socket.
         try:
-            request = self._get_rpc(self, clientsock)
+            request = self._get_rpc(clientsock)
         except ValueError as e:
             self.log.error(e)
             self.sock_selector.unregister(clientsock)
@@ -213,7 +211,7 @@ class Server:
         except BrokenPipeError | ConnectionResetError as e:
             self.log.warn(f"Ack to {clientsock} failed: {e}")
             self.sock_selector.unregister(clientsock.fileno())
-            self._close_socket(sock)
+            self._close_socket(clientsock)
         except socket.timeout:
             self.log.warn(f"Ack to {clientsock} timed out.")
         return flags
@@ -247,7 +245,7 @@ class Server:
         try:
             request = pickle.loads(b"".join(buffer))
         except pickle.UnpicklingError:
-            raise ValueError(f"Deserialization failed from {client_address}: {e}")
+            raise ValueError(f"Deserialization failed from {clientsock}")
 
         self._validate_rpc(request)
         return request
@@ -261,13 +259,19 @@ class Server:
                 return 0
             case self.leaders_address:
                 # Broacast came from leader. Check if sync necessary
-                if addr == self.leaders_address:
-                    try:
-                        message = json.loads(data)
-                    except json.decoder.JSONDecodeError:
-                        return 0
+                # if addr == self.leaders_address:
+                try:
+                    message = json.loads(data)
+                except json.decoder.JSONDecodeError:
+                    return 0
+                if message.get("calendar_ident") != self.calendar_ident:
+                    return 0
                 clock = message.get("logical_clock", 0)
-                return ServerFlags.DO_SYNC if clock > self.logical_clock else 0
+                return (
+                    ServerFlags.DO_SYNC
+                    if clock > self.persistence.get_logical_clock()
+                    else 0
+                )
             case _:
                 # Came from some other node. Ignore.
                 return 0
@@ -286,9 +290,6 @@ class Server:
             )
         except OSError:
             self.log.warn("Failed to broadcast clock.")
-
-    def _send_ack(self, payload: dict[str, str], clientsock: Socket) -> None:
-        """Send acknowledgment of the request to file descriptor"""
 
     def _close_socket(self, sock: Socket) -> None:
         """Close file descriptor socket gracefully"""
@@ -366,7 +367,7 @@ class Server:
             "method": method,
             "status": "success",
             "calendar": self.persistence.list_events(),
-            "logical_clock": self.logical_clock,
+            "logical_clock": self.persistence.get_logical_clock(),
         }, ServerFlags.NONE
 
     def _coordinate(self, method: str, params: dict) -> tuple[dict, ServerFlags]:
