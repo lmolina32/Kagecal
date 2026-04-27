@@ -130,6 +130,8 @@ class Peer:
                             self.own_port,
                         )
                 except ConnectionError:
+                    with self.client_cv:
+                        self.client = None
                     continue
 
                 self.server.leader_host = leader_host
@@ -147,8 +149,8 @@ class Peer:
         # Queried all Peers, got no response, trigger and election and win.
         else:
             self.log.info(f"Couldn't contact leader.")
-            with self.election_cv:
-                self.log.info(f"[ Main ] Taken election CV.")
+            with self.election_cv, self.client_cv:
+                self.client = None
                 self.do_election = True
                 self.election_cv.notify()
 
@@ -203,54 +205,60 @@ class Peer:
         location: Optional[str],
         repeats: Optional[Repeats],
     ) -> Optional[int]:
-        """Grab the calendar lock first. If this peer is the leader, update the calendar directly then broadcast sync. Otherwise, use RPC stub on the client to send update to leader, then update local calendar to skip broadcast sync. If RPC stub on client fails catch the exception and raise an election"""
-        try:
-            with self.server.calendar_lock:
-                match self.server.mode:
-                    case ServerMode.FOLLOWER:
-                        self.client.create(
-                            name, start, end, description, location, repeats
+        """Grab the calendar lock first. If this peer is the leader, update the calendar directly then broadcast sync. Otherwise, use RPC stub on the client to send update to leader, then update local calendar to skip broadcast sync. On failure, raises ConnectionError."""
+        match self.server.mode:
+            case ServerMode.FOLLOWER:
+                with self.client_cv:
+                    while self.client is None:
+                        self.client_cv.wait()
+                    try:
+                        with self.server.calendar_lock:
+                            self.client.create(
+                                name, start, end, description, location, repeats
+                            )
+                            event_id = self.server.persistence.create(
+                                name, start, end, description, location, repeats
+                            )
+                    except ConnectionError:
+                        self.log.error(
+                            "Leader unreachable during create(); calling election"
                         )
-                        event_id = self.server.persistence.create(
-                            name, start, end, description, location, repeats
-                        )
-                    case ServerMode.LEADER:
-                        event_id = self.server.persistence.create(
-                            name, start, end, description, location, repeats
-                        )
-                        self.server.broadcast_clock()
-        except ConnectionError:
-            self.log.error("Leader unreachable during create(); calling election")
-            with self.election_cv, self.client_cv:
-                self.client = None
-                self.do_election = True
-                self.election_cv.notify()
+                        with self.election_cv:
+                            self.do_election = True
+                            self.election_cv.notify()
+                        raise ConnectionError("Failed to reach leader.")
+            case ServerMode.LEADER:
+                with self.server.calendar_lock:
+                    event_id = self.server.persistence.create(
+                        name, start, end, description, location, repeats
+                    )
+                self.server.broadcast_clock()
+
         return event_id
 
     def delete(self, ident: int) -> None:
-        """Grab the calendar lock first. If this peer is the leader, update the calendar directly then broadcast sync. Otherwise, use RPC stub on the client to send update to leader, then update local calendar to skip broadcast sync. If RPC stub on client fails catch the exception and raise an election"""
-        try:
-            with self.server.calendar_lock:
-                match self.server.mode:
-                    case ServerMode.FOLLOWER:
-                        client = Client(
-                            self.peer_ident,
-                            self.server.leader_host,
-                            self.server.leader_port,
-                            self.own_host,
-                            self.own_port,
+        """Grab the calendar lock first. If this peer is the leader, update the calendar directly then broadcast sync. Otherwise, use RPC stub on the client to send update to leader, then update local calendar to skip broadcast sync. On failure, raises ConnectionError."""
+        match self.server.mode:
+            case ServerMode.FOLLOWER:
+                with self.client_cv:
+                    while self.client is None:
+                        self.client_cv.wait()
+                    try:
+                        with self.server.calendar_lock:
+                            self.client.delete(ident)
+                            self.server.persistence.delete(ident)
+                    except ConnectionError:
+                        self.log.error(
+                            "Leader unreachable during delete(); calling election"
                         )
-                        client.delete(ident)
-                        self.server.persistence.delete(ident)
-                    case ServerMode.LEADER:
-                        self.server.persistence.delete(ident)
-                        self.server.broadcast_clock()
-        except ConnectionError:
-            self.log.error("Leader unreachable during delete(); calling election")
-            with self.election_cv, self.client_cv:
-                self.client = None
-                self.do_election = True
-                self.election_cv.notify()
+                        with self.election_cv:
+                            self.do_election = True
+                            self.election_cv.notify()
+                        raise ConnectionError("Failed to reach leader.")
+            case ServerMode.LEADER:
+                with self.server.calendar_lock:
+                    self.server.persistence.delete(ident)
+                self.server.broadcast_clock()
 
     def modify(
         self,
@@ -262,36 +270,36 @@ class Peer:
         location: Optional[str],
         repeats: Optional[Repeats],
     ) -> Optional[int]:
-        """Grab the calendar lock first. If this peer is the leader, update the calendar directly then broadcast sync. Otherwise, use RPC stub on the client to send update to leader, then update local calendar to skip broadcast sync. If RPC stub on client fails catch the exception and raise an election"""
-        try:
-            with self.server.calendar_lock:
-                match self.server.mode:
-                    case ServerMode.FOLLOWER:
-                        client = Client(
-                            self.peer_ident,
-                            self.server.leader_host,
-                            self.server.leader_port,
-                            self.own_host,
-                            self.own_port,
+        """Grab the calendar lock first. If this peer is the leader, update the calendar directly then broadcast sync. Otherwise, use RPC stub on the client to send update to leader, then update local calendar to skip broadcast sync. On failure, raises ConnectionError."""
+        match self.server.mode:
+            case ServerMode.FOLLOWER:
+                with self.client_cv:
+                    while self.client is None:
+                        self.client_cv.wait()
+                    try:
+                        with self.server.calendar_lock:
+                            self.client.modify(
+                                ident, name, start, end, description, location, repeats
+                            )
+                            event_id = self.server.persistence.modify(
+                                ident, name, start, end, description, location, repeats
+                            )
+                    except ConnectionError:
+                        self.log.error(
+                            "Leader unreachable during modify(); calling election"
                         )
-                        client.modify(
-                            ident, name, start, end, description, location, repeats
-                        )
-                        updated_id = self.server.persistence.modify(
-                            ident, name, start, end, description, location, repeats
-                        )
-                    case ServerMode.LEADER:
-                        updated_id = self.server.persistence.modify(
-                            ident, name, start, end, description, location, repeats
-                        )
-                        self.server.broadcast_clock()
-        except ConnectionError:
-            self.log.error("Leader unreachable during modify(); calling election")
-            with self.election_cv, self.client_cv:
-                self.client = None
-                self.do_election = True
-                self.election_cv.notify()
-        return updated_id
+                        with self.election_cv:
+                            self.do_election = True
+                            self.election_cv.notify()
+                        raise ConnectionError("Failed to reach leader.")
+            case ServerMode.LEADER:
+                with self.server.calendar_lock:
+                    event_id = self.server.persistence.modify(
+                        ident, name, start, end, description, location, repeats
+                    )
+                self.server.broadcast_clock()
+
+        return event_id
 
     def _server_thread(self):
         """Target for the thread created by start_server."""
@@ -310,11 +318,13 @@ class Peer:
             if flags & ServerFlags.DO_SYNC:
                 # Sync is a request to the leader, so it could fail, triggering an election.
                 try:
-                    calendar, clock = self.client.sync()
+                    with self.client_cv:
+                        if self.client is None:
+                            raise ConnectionError
+                        calendar, clock = self.client.sync()
                     self.server.update(calendar, clock)
                 except ConnectionError:
-                    with self.election_cv, self.client_cv:
-                        self.client = None
+                    with self.election_cv:
                         self.do_election = True
                         self.election_cv.notify()
 
@@ -333,17 +343,17 @@ class Peer:
                             self.own_port,
                         )
                         events, clock = self.client.sync()
-                        self.server.update(events, clock)
-                        self.new_leader = True
                         self.client_cv.notify()
+                    self.server.update(events, clock)
                 except ConnectionError:
-                    with self.election_cv, self.client_cv:
-                        self.client = None
+                    with self.election_cv:
                         self.do_election = True
                         self.election_cv.notify()
 
     def call_election(self):
         """Initiates (or continues) the leader election protocol. A new client to the new leader is created."""
+        with self.client_cv:
+            self.client = None
 
         # 1. Get all peer endpoints from catalog.
         catalog_entries = self._get_catalog()
