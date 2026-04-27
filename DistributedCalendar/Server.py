@@ -40,8 +40,6 @@ class ServerFlags(IntEnum):
     """Indicates that the peer should replace its leader client with a new one by reading the updated leader endpoint on the server.."""
     DO_BROADCAST = 1 << 3
     """Indicates that the server (in leader mode) should broadcast its logical clock."""
-    COORDINATE_RECVD = 1 << 4
-    """Indicates that the server got a coordinate message."""
 
 
 class RPC(TypedDict):
