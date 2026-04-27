@@ -143,8 +143,7 @@ class PersistantCalendar:
         """Retrives all events in the calendar"""
         return self.calendar.list_events()
 
-    @property
-    def logical_clock(self):
+    def get_logical_clock(self):
         return self._logical_clock
 
     def _restore(self) -> None:
