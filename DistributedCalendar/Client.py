@@ -159,7 +159,7 @@ class Client:
             "params": {},
         }
         response = self._send(message)
-        return response["host"], response["port"]
+        return response["calendar"], response["logical_clock"]
 
     # === SOCKETS ===
     def _send(self, message: dict) -> dict:
