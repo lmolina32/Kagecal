@@ -43,7 +43,7 @@ class PersistantCalendar:
         self.NEW_CKPT_PATH = str(data_path / (ckpt_path + ".new"))
         self.TXN_LOG_PATH = str(data_path / txn_log_path)
         self.UPDATE_PATH = str(data_path / update_path)
-        self.NEW_UPDATE_PATH = str(data_path / (update_path + new))
+        self.NEW_UPDATE_PATH = str(data_path / (update_path + "new"))
 
         self._logical_clock: int = 0
         self.txns_logged: int = 0
@@ -60,13 +60,13 @@ class PersistantCalendar:
         This method is similar to checkpoint except with slightly different semantics. During a restore, if there is an update file, the calendar state will restore from the update file instead of the checkpoint. It will then NOT replay the transaction log (to avoid replaying stale changes). Instead, it will delete the transaction log.
         """
         self.calendar.events = events
-        self.logical_clock = logical_clock
+        self._logical_clock = logical_clock
         self.logger.info("[Update] Updating calendar...")
 
         # 1. Write calendar to new new update file
         with open(self.NEW_UPDATE_PATH, "wb") as new_update_file:
             pickle.dump(
-                (self.calendar.events, self.logical_clock),
+                (self.calendar.events, self._logical_clock),
                 new_update_file,
                 protocol=pickle.HIGHEST_PROTOCOL,
             )
@@ -93,6 +93,7 @@ class PersistantCalendar:
         # 1. Create new event
         event = Event(name, start, end, description, location, repeats)
         ident = self.calendar.create(name, start, end, description, location, repeats)
+        self._logical_clock += 1
 
         if ident is None:
             return None
@@ -106,6 +107,7 @@ class PersistantCalendar:
     def delete(self, ident: int) -> None:
         # 1. Delete event
         self.calendar.delete(ident)
+        self._logical_clock += 1
 
         # 2. Log the transaction
         txn = Transaction("delete", ident, None)
@@ -126,6 +128,7 @@ class PersistantCalendar:
         new_ident = self.calendar.modify(
             ident, name, start, end, description, location, repeats
         )
+        self._logical_clock += 1
 
         if new_ident is None:
             return None
@@ -153,12 +156,12 @@ class PersistantCalendar:
         self.calendar = Calendar()
         if os.path.isfile(self.UPDATE_PATH):
             with open(self.UPDATE_PATH, "rb") as file:
-                self.calendar.events, self.logical_clock = pickle.load(file)
+                self.calendar.events, self._logical_clock = pickle.load(file)
             self._checkpoint()
             os.unlink(self.UPDATE_PATH)
         elif os.path.isfile(self.CKPT_PATH):
             with open(self.CKPT_PATH, "rb") as file:
-                self.calendar.events, self.logical_clock = pickle.load(file)
+                self.calendar.events, self._logical_clock = pickle.load(file)
 
         self.logger.info(
             f"[Restore] Restored calendar with {len(self.calendar.events)} events"
@@ -179,6 +182,7 @@ class PersistantCalendar:
                             self.calendar.modify(
                                 ident=txn.identifier, **txn.event.__dict__
                             )
+                    self._logical_clock += 1
 
         # Case: Server crashed while checkpointing, leaving a stale "new" checkpoint file. Remove it, and try to checkpoint again.
         if os.path.isfile(self.NEW_CKPT_PATH):
@@ -231,7 +235,7 @@ class PersistantCalendar:
         # 1. Write Table to new checkpoint file
         with open(self.NEW_CKPT_PATH, "wb") as new_ckpt_file:
             pickle.dump(
-                (self.calendar.events, self.logical_clock),
+                (self.calendar.events, self._logical_clock),
                 new_ckpt_file,
                 protocol=pickle.HIGHEST_PROTOCOL,
             )
