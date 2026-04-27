@@ -407,7 +407,7 @@ class Server:
 
     def set_coordinate(self, value: bool):
         """Sets the coordinate flag. If the flag is True, the server will only respond to COORDINATE messages, and will ignore all others."""
-        self.coordinate = True
+        self.coordinate = value 
 
     def update(self, events: dict[int, Event], logical_clock: int):
         """Updates the calendar state to match the passed in event list and clock. Analogous to _sync."""
