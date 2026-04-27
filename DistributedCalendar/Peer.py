@@ -70,11 +70,13 @@ class Peer:
 
         self.own_port = self.server.port
         self.own_host = self.server.host
-        self._bootstrap()
+
         server_thread = threading.Thread(target=self._server_thread, daemon=True)
         election_thread = threading.Thread(target=self._election_thread, daemon=True)
         server_thread.start()
         election_thread.start()
+
+        self._bootstrap()
 
     def _bootstrap(self) -> None:
         # TODO: add more detail docstring
@@ -150,13 +152,12 @@ class Peer:
         # Queried all Peers, got no response, trigger and election and win.
         else:
             self.log.info(f"Couldn't contact leader.")
-            with self.election_cv, self.client_cv:
-                self.client = None
+            with self.election_cv:
                 self.do_election = True
                 self.election_cv.notify()
 
         # Syncronize with leader.
-        if self.server.mode == ServerMode.FOLLOWER:
+        if self.server.get_mode() == ServerMode.FOLLOWER:
             with self.client_cv:
                 while not self.client:
                     self.client_cv.wait()
@@ -207,7 +208,7 @@ class Peer:
         repeats: Optional[Repeats],
     ) -> Optional[int]:
         """Grab the calendar lock first. If this peer is the leader, update the calendar directly then broadcast sync. Otherwise, use RPC stub on the client to send update to leader, then update local calendar to skip broadcast sync. On failure, raises ConnectionError."""
-        match self.server.mode:
+        match self.server.get_mode():
             case ServerMode.FOLLOWER:
                 with self.client_cv:
                     while self.client is None:
@@ -234,12 +235,11 @@ class Peer:
                         name, start, end, description, location, repeats
                     )
                 self.server.broadcast_clock()
-
         return event_id
 
     def delete(self, ident: int) -> None:
         """Grab the calendar lock first. If this peer is the leader, update the calendar directly then broadcast sync. Otherwise, use RPC stub on the client to send update to leader, then update local calendar to skip broadcast sync. On failure, raises ConnectionError."""
-        match self.server.mode:
+        match self.server.get_mode():
             case ServerMode.FOLLOWER:
                 with self.client_cv:
                     while self.client is None:
@@ -272,7 +272,7 @@ class Peer:
         repeats: Optional[Repeats],
     ) -> Optional[int]:
         """Grab the calendar lock first. If this peer is the leader, update the calendar directly then broadcast sync. Otherwise, use RPC stub on the client to send update to leader, then update local calendar to skip broadcast sync. On failure, raises ConnectionError."""
-        match self.server.mode:
+        match self.server.get_mode():
             case ServerMode.FOLLOWER:
                 with self.client_cv:
                     while self.client is None:
@@ -316,7 +316,7 @@ class Peer:
 
     def _server_thread(self):
         """Target for the thread created by start_server."""
-        self.log.info("Server thread started.")
+        self.log.info("[ Server ] Thread started.")
         while True:
             # 1. Serve a round of requests.
             flags = self.server.serve()
@@ -358,7 +358,9 @@ class Peer:
                         )
                         events, clock = self.client.sync()
                         self.client_cv.notify()
+                    self.server.set_mode(ServerMode.FOLLOWER)
                     self.server.update(events, clock)
+                    self.log.info(f"New leader ")
                 except ConnectionError:
                     with self.election_cv:
                         self.do_election = True
@@ -366,6 +368,7 @@ class Peer:
 
     def call_election(self):
         """Initiates (or continues) the leader election protocol. A new client to the new leader is created."""
+        self.log.info("Starting election...")
         with self.client_cv:
             self.client = None
 
@@ -402,19 +405,26 @@ class Peer:
                 break
         else:
             # b. If no OK received from any peer with higher PID (or if there are no peers with a higher PID), become the leader and send COORDINATE. Check the logical clock on all COORDINATE ACKs, and SYNC with highest one.
-            self.log.info("Won election.")
+            self.log.info(
+                f"Won election. New leader endpoint is {self.own_host} {self.own_port}"
+            )
             self.server.set_mode(ServerMode.LEADER)
+            with self.client_cv:
+                self.client = None
 
             clients = []
             for entry in lower_pids:
-                client = Client(
-                    self.peer_ident,
-                    entry["host"],
-                    entry["port"],
-                    self.own_host,
-                    self.own_port,
-                )
-                logical_clock = client.coordinate()
+                try:
+                    client = Client(
+                        self.peer_ident,
+                        entry["host"],
+                        entry["port"],
+                        self.own_host,
+                        self.own_port,
+                    )
+                    logical_clock = client.coordinate()
+                except ConnectionError:
+                    continue
                 if logical_clock > self.server.get_logical_clock():
                     clients.append((logical_clock, client))
 
@@ -430,13 +440,11 @@ class Peer:
 
     def _election_thread(self):
         """Target for a thread that waits for the server or main threads to signal that election needs to happen."""
-        self.log.info("Server thread started.")
+        self.log.info("[ Election ] thread started.")
         while True:
             with self.election_cv:
-                self.log.info(f"[ Election ] Taken election CV.")
                 while not self.do_election:
                     self.election_cv.wait()
-                self.log.info("Calling an election...")
                 self.call_election()
                 self.do_election = False
 

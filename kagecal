@@ -132,7 +132,10 @@ class Application:
                 return
 
         cal = self.calendars[self.curr_calendar]
-        cal.create(*astuple(event))
+        try:
+            cal.create(*astuple(event))
+        except ConnectionError:
+            print("Connection to network lost. Please try again.")
 
     def _remove(self, ident_str: str):
         try:
@@ -141,7 +144,10 @@ class Application:
             print("Usage: " + self.COMMANDS["remove"].usage)
 
         cal = self.calendars[self.curr_calendar]
-        cal.delete(ident)
+        try:
+            cal.delete(ident)
+        except ConnectionError:
+            print("Connection to network lost. Please try again.")
 
     def _modify(self, ident_str: str):
         try:
@@ -156,7 +162,11 @@ class Application:
             return
 
         cal = self.calendars[self.curr_calendar]
-        cal.modify(ident, *astuple(new_event))
+
+        try:
+            cal.modify(ident, *astuple(new_event))
+        except ConnectionError:
+            print("Connection to network lost. Please try again.")
 
     def _show(self, ident_str: str):
         try:
@@ -329,6 +339,8 @@ def main() -> int:
     while True:
         try:
             line = input("kagecal> ")
+            if not line:
+                continue
             command, *args = line.split()
             app.perform(command, args)
         except KeyboardInterrupt:

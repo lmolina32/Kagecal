@@ -22,8 +22,8 @@ Socket = socket.socket
 class Client:
     BUFFER_SIZE = 1 << 12
     MAX_BACKOFF = 128
-    MAX_RETRIES = 4
-    ELECTION_MAX_RETRIES = 3
+    MAX_RETRIES = 2
+    ELECTION_MAX_RETRIES = 2
     SOCKET_TIMEOUT = 10  # Seconds
 
     def __init__(
@@ -238,14 +238,16 @@ class Client:
 
     def _socket_close(self) -> None:
         """Close connection established"""
+        self.log.info(
+            f"Shutting down connection to {self.target_host} {self.target_port}"
+        )
         if self.socket is not None:
             try:
                 self.socket.shutdown(socket.SHUT_RDWR)
-            except Exception:
+            except OSError:
                 pass
-            finally:
-                self.socket.close()
-                self.socket = None
+            self.socket.close()
+            self.socket = None
 
     def __enter__(self) -> Self:
         return self

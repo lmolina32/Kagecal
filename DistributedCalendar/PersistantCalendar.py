@@ -61,7 +61,7 @@ class PersistantCalendar:
         """
         self.calendar.events = events
         self._logical_clock = logical_clock
-        self.logger.info("[Update] Updating calendar...")
+        self.logger.debug("[Update] Updating calendar...")
 
         # 1. Write calendar to new new update file
         with open(self.NEW_UPDATE_PATH, "wb") as new_update_file:
@@ -79,7 +79,7 @@ class PersistantCalendar:
         os.rename(self.NEW_UPDATE_PATH, self.UPDATE_PATH)
         self._checkpoint()
         os.unlink(self.UPDATE_PATH)
-        self.logger.info("[Update] done.")
+        self.logger.debug("[Update] done.")
 
     def create(
         self,
@@ -227,7 +227,7 @@ class PersistantCalendar:
 
     def _checkpoint(self) -> None:
         """Create a new checkpoint, reset the transaction log, clean stale files."""
-        self.logger.info("[Checkpoint] Checkpointing...")
+        self.logger.debug("[Checkpoint] Checkpointing...")
 
         # 1. Write Table to new checkpoint file
         with open(self.NEW_CKPT_PATH, "wb") as new_ckpt_file:
@@ -247,4 +247,4 @@ class PersistantCalendar:
         # 3. Truncate the transaction log, reset transaction counter.
         self.txn_log_file.truncate(0)
         self.txns_logged = 0
-        self.logger.info("[Checkpoint] done.")
+        self.logger.debug("[Checkpoint] done.")

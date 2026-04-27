@@ -68,7 +68,6 @@ class Server:
     ):
         # Logging
         self.log = logging.getLogger(__name__)
-        self.log.setLevel(logging.DEBUG)
 
         # Set up calednar and its lock
         self.persistence = PersistantCalendar(ckpt_path, txn_path)
@@ -145,7 +144,7 @@ class Server:
         """Poll all client connections for incoming requests and serve them. Returns after one round of socket events has been handled."""
         with self.calendar_lock:
             server_flags = 0
-            for key, mask in self.sock_selector.select():
+            for key, mask in self.sock_selector.select(timeout=0.001):
                 callback = key.data
                 server_flags |= callback(key.fileobj)
         return server_flags
@@ -332,7 +331,7 @@ class Server:
             while sent_amt < data_size:
                 sent = s.sendto(data[: data_size - sent_amt], (hostname, port))
                 sent_amt += sent
-            self.log.info(f"Send UDP packet for naming to {hostname}")
+            self.log.debug(f"Send UDP packet for naming to {hostname}")
             self.stop.wait(self.NAMESERV_KEEPALIVE)
         s.close()
 
@@ -433,11 +432,16 @@ class Server:
 
     def set_mode(self, mode: ServerMode) -> None:
         """Sets the server mode to either FOLLOWER or LEADER."""
-        with self.mode_lock:
+        with self.calendar_lock:
             self.mode = mode
 
+    def get_mode(self) -> ServerMode:
+        with self.calendar_lock:
+            return self.mode
+
     def get_logical_clock(self) -> int:
-        return self.get_logical_clock()
+        with self.calendar_lock:
+            return self.persistence.get_logical_clock()
 
 
 def main() -> None:
