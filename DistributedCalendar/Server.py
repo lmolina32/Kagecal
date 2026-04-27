@@ -88,6 +88,7 @@ class Server:
             "modify": self._modify,
             "who_is_leader": self._who_is_leader,
             "coordinate": self._coordinate,
+            "election": self._election,
         }
 
         self.mode: ServerMode = ServerMode.FOLLOWER
@@ -215,7 +216,7 @@ class Server:
 
         # Broadcast updated logical clock if necessary
         if self.mode == ServerMode.LEADER and method in {"create", "delete", "modify"}:
-            self._broadcast_clock()
+            self.broadcast_clock()
 
         return flags
 
@@ -279,7 +280,7 @@ class Server:
                 # Came from some other node. Ignore.
                 return 0
 
-    def _broadcast_clock(self) -> None:
+    def broadcast_clock(self) -> None:
         """Broadcasts to all nodes a dict of the form {"calendar_ident": str, "logical_clock": int }. The calendar ident is to prevent cross talk from several concurrently running calendars."""
         # TODO: This could cause a problem if the calendar ident is sufficiently long that it exceeds the MTU of the network nodes, causing the UDP packet to be fragmented and possibly arrive out of order.
         message = {
