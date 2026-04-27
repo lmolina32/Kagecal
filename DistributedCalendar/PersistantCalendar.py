@@ -54,7 +54,7 @@ class PersistantCalendar:
     def __del__(self) -> None:
         self.txn_log_file.close()
 
-    def update(self, events: dict[int, Event], logical_clock) -> None:
+    def update(self, events: dict[str, Event], logical_clock) -> None:
         """Atomically overwrite the entire calendar state with the passed event list and logical clock.
 
         This method is similar to checkpoint except with slightly different semantics. During a restore, if there is an update file, the calendar state will restore from the update file instead of the checkpoint. It will then NOT replay the transaction log (to avoid replaying stale changes). Instead, it will delete the transaction log.
@@ -89,7 +89,7 @@ class PersistantCalendar:
         description: Optional[str] = None,
         location: Optional[str] = None,
         repeats: Optional[Repeats] = None,
-    ) -> Optional[int]:
+    ) -> Optional[str]:
         # 1. Create new event
         event = Event(name, start, end, description, location, repeats)
         ident = self.calendar.create(name, start, end, description, location, repeats)
@@ -104,7 +104,7 @@ class PersistantCalendar:
 
         return ident
 
-    def delete(self, ident: int) -> None:
+    def delete(self, ident: str) -> None:
         # 1. Delete event
         self.calendar.delete(ident)
         self._logical_clock += 1
@@ -115,14 +115,14 @@ class PersistantCalendar:
 
     def modify(
         self,
-        ident: int,
+        ident: str,
         name: str,
         start: int,
         end: int,
         description: Optional[str] = None,
         location: Optional[str] = None,
         repeats: Optional[Repeats] = None,
-    ) -> Optional[int]:
+    ) -> Optional[str]:
         # 1. Modify event
         event = Event(name, start, end, description, location, repeats)
         new_ident = self.calendar.modify(
@@ -138,11 +138,11 @@ class PersistantCalendar:
         self._log(txn)
         return new_ident
 
-    def get_event(self, ident) -> Optional[Event]:
+    def get_event(self, ident: str) -> Optional[Event]:
         """Retrives an event with a given identifier from the calendar, regardless of whether or not the event exists"""
         return self.calendar.get_event(ident)
 
-    def list_events(self) -> dict[int, Event]:
+    def list_events(self) -> dict[str, Event]:
         """Retrives all events in the calendar"""
         return self.calendar.list_events()
 

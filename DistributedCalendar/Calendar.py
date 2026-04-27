@@ -1,4 +1,6 @@
 import time
+import hashlib
+import pickle
 from enum import Enum
 from typing import Optional
 from dataclasses import dataclass
@@ -30,10 +32,6 @@ class Repeats:
             and self.repeats_until == other.repeats_until
         )
 
-    def __hash__(self) -> int:
-        # Hash based on the same attributes used for equality
-        return hash((self.repeats_every, self.repeats_starting, self.repeats_until))
-
 
 @dataclass
 class Event:
@@ -56,18 +54,21 @@ class Event:
             and self.repeats == other.repeats
         )
 
-    def __hash__(self) -> int:
+    def hash(self) -> str:
         # Hash based on the same attributes used for equality
-        return hash(
-            (
-                self.name,
-                self.start,
-                self.end,
-                self.description,
-                self.location,
-                self.repeats,
+        hash_obj = hashlib.sha256(
+            pickle.dumps(
+                (
+                    self.name,
+                    self.start,
+                    self.end,
+                    self.description,
+                    self.location,
+                    self.repeats,
+                )
             )
         )
+        return hash_obj.hexdigest()
 
     def validate_event(self):
         """Checks if an event is consistent with the following invariants:
@@ -93,7 +94,7 @@ class Event:
 class Calendar:
 
     def __init__(self) -> None:
-        self.events: dict[int, Event] = {}
+        self.events: dict[str, Event] = {}
 
     def create(
         self,
@@ -103,7 +104,7 @@ class Calendar:
         description: Optional[str] = None,
         location: Optional[str] = None,
         repeats: Optional[Repeats] = None,
-    ) -> Optional[int]:
+    ) -> Optional[str]:
         """Creates an Event, assigns it a unique identifier, and adds it to the calendar. If the event metadata is malformed, does nothing. Returns the identifer for the event."""
 
         event = Event(name, start, end, description, location, repeats)
@@ -113,11 +114,11 @@ class Calendar:
         except ValueError:
             return None
 
-        identifier = hash(event)
+        identifier = event.hash()
         self.events[identifier] = event
         return identifier
 
-    def delete(self, ident: int) -> None:
+    def delete(self, ident: str) -> None:
         """Deletes an event with a given identifier from the calendar, regardless of whether or not the event exists."""
         if ident in self.events:
             del self.events[ident]
@@ -131,7 +132,7 @@ class Calendar:
         description: Optional[str] = None,
         location: Optional[str] = None,
         repeats: Optional[Repeats] = None,
-    ) -> Optional[int]:
+    ) -> Optional[str]:
         """Modifies an event with a given identifier. If the event doesn't exist, or if the event metadata is malformed, does nothing. Returns the new identifier for the event."""
         if ident not in self.events:
             return None
@@ -141,11 +142,11 @@ class Calendar:
         del self.events[ident]
         return new_ident
 
-    def get_event(self, ident) -> Optional[Event]:
+    def get_event(self, ident: str) -> Optional[Event]:
         """Retrives an event with a given identifier from the calendar, regardless of whether or not the event exists"""
         return self.events.get(ident, None)
 
-    def list_events(self) -> dict[int, Event]:
+    def list_events(self) -> dict[str, Event]:
         """Retrives all events in the calendar"""
         return dict(self.events)
 

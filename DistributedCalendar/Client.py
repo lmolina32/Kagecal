@@ -58,7 +58,7 @@ class Client:
         description: Optional[str] = None,
         location: Optional[str] = None,
         repeats: Optional[Repeats] = None,
-    ) -> Optional[int]:
+    ) -> Optional[str]:
         """RPC stub that creates an Event, assigns it a unique identifier, and adds it to the calendar. If the event metadata is malformed, does nothing. Returns the identifer for the event. On failure, raises a ConnectionError."""
         message = {
             "method": "create",
@@ -78,7 +78,7 @@ class Client:
         else:
             return None
 
-    def delete(self, ident: int) -> None:
+    def delete(self, ident: str) -> None:
         """RPC stub that Deletes an event with a given identifier from the calendar, regardless of whether or not the event exists. On failure, raises a ConnectionError."""
         message = {
             "method": "delete",
@@ -89,14 +89,14 @@ class Client:
 
     def modify(
         self,
-        ident: int,
+        ident: str,
         name: str,
         start: int,
         end: int,
         description: Optional[str] = None,
         location: Optional[str] = None,
         repeats: Optional[Repeats] = None,
-    ) -> Optional[int]:
+    ) -> Optional[str]:
         message = {
             "method": "modify",
             "peer_ident": self.peer_ident,
@@ -151,7 +151,7 @@ class Client:
         except ConnectionError:
             return False
 
-    def sync(self) -> tuple[dict[int, Event], int]:
+    def sync(self) -> tuple[dict[str, Event], int]:
         """Retrieves the current calendar state and logical clock from the target peer. On success, returns a tuple containing the event list and logical clock. On failure, raises a ConnectionError."""
         message = {
             "method": "sync",

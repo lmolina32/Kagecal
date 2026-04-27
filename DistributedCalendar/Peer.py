@@ -206,7 +206,7 @@ class Peer:
         description: Optional[str],
         location: Optional[str],
         repeats: Optional[Repeats],
-    ) -> Optional[int]:
+    ) -> Optional[str]:
         """Grab the calendar lock first. If this peer is the leader, update the calendar directly then broadcast sync. Otherwise, use RPC stub on the client to send update to leader, then update local calendar to skip broadcast sync. On failure, raises ConnectionError."""
         match self.server.get_mode():
             case ServerMode.FOLLOWER:
@@ -237,7 +237,7 @@ class Peer:
                 self.server.broadcast_clock()
         return event_id
 
-    def delete(self, ident: int) -> None:
+    def delete(self, ident: str) -> None:
         """Grab the calendar lock first. If this peer is the leader, update the calendar directly then broadcast sync. Otherwise, use RPC stub on the client to send update to leader, then update local calendar to skip broadcast sync. On failure, raises ConnectionError."""
         match self.server.get_mode():
             case ServerMode.FOLLOWER:
@@ -263,14 +263,14 @@ class Peer:
 
     def modify(
         self,
-        ident: int,
+        ident: str,
         name: str,
         start: int,
         end: int,
         description: Optional[str],
         location: Optional[str],
         repeats: Optional[Repeats],
-    ) -> Optional[int]:
+    ) -> Optional[str]:
         """Grab the calendar lock first. If this peer is the leader, update the calendar directly then broadcast sync. Otherwise, use RPC stub on the client to send update to leader, then update local calendar to skip broadcast sync. On failure, raises ConnectionError."""
         match self.server.get_mode():
             case ServerMode.FOLLOWER:
@@ -302,13 +302,13 @@ class Peer:
 
         return event_id
 
-    def get_event(self, ident) -> Optional[Event]:
+    def get_event(self, ident: str) -> Optional[Event]:
         """grab calendar lock and perform read"""
         with self.server.calendar_lock:
             event = self.server.persistence.get_event(ident)
         return event
 
-    def list_events(self) -> dict[int, Event]:
+    def list_events(self) -> dict[str, Event]:
         """grab calendar lock and perform read"""
         with self.server.calendar_lock:
             event = self.server.persistence.list_events()

@@ -22,8 +22,6 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 
-# TODO: Server need to send UDP broadcasts containing the current logical clock after every calendar state mutation, as well as every interval.
-
 
 class ServerMode(Enum):
     FOLLOWER = 0

@@ -137,24 +137,14 @@ class Application:
         except ConnectionError:
             print("Connection to network lost. Please try again.")
 
-    def _remove(self, ident_str: str):
-        try:
-            ident = int(ident_str)
-        except ValueError:
-            print("Usage: " + self.COMMANDS["remove"].usage)
-
+    def _remove(self, ident: str):
         cal = self.calendars[self.curr_calendar]
         try:
             cal.delete(ident)
         except ConnectionError:
             print("Connection to network lost. Please try again.")
 
-    def _modify(self, ident_str: str):
-        try:
-            ident = int(ident_str)
-        except ValueError:
-            print("Usage: " + self.COMMANDS["modify"].usage)
-
+    def _modify(self, ident: str):
         try:
             new_event = self._get_event_input()
         except KeyboardInterrupt:
@@ -168,12 +158,7 @@ class Application:
         except ConnectionError:
             print("Connection to network lost. Please try again.")
 
-    def _show(self, ident_str: str):
-        try:
-            ident = int(ident_str)
-        except ValueError:
-            print("Usage: " + self.COMMANDS["show"].usage)
-
+    def _show(self, ident: str):
         cal = self.calendars[self.curr_calendar]
         event = cal.get_event(ident)
 
@@ -209,7 +194,7 @@ class Application:
 
     def _dump(self, event, file):
         cal = self.calendars[self.curr_calendar]
-        event = cal.get_event(int(event))
+        event = cal.get_event(event)
         if not event:
             print(f"No event in calendar {self.curr_calendar} with id {event}.")
         with open(file, "wb") as outfile:
