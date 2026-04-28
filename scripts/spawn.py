@@ -55,7 +55,7 @@ def run_peer(peer_name: str, calendar_ident: str, events: int, output: Path):
         "events": events,
         "times": event_times,
         "mean": statistics.mean(event_times),
-        "std": statistics.stdev(event_times),
+        "std": statistics.stdev(event_times) if len(event_times) != 1 else None,
     }
 
     output_path.write_text(json.dumps(results, indent=4))
