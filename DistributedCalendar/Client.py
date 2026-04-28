@@ -10,12 +10,6 @@ from typing import Self, Optional
 
 from .Calendar import Repeats, Event
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="[%(levelname)s %(asctime)s %(module)s:%(lineno)d] %(message)s",
-    datefmt="%H:%M:%S",
-)
-
 Socket = socket.socket
 
 

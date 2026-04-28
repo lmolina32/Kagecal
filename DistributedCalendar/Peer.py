@@ -15,11 +15,12 @@ from .Client import Client
 from .PersistantCalendar import PersistantCalendar
 from .Calendar import Repeats, Event
 
+logging.basicConfig(level=logging.DEBUG)
 log_format = "[%(levelname)s %(asctime)s %(module)s:%(lineno)d] %(message)s"
 logging.basicConfig(
     format=log_format,
     datefmt="%Y-%m-%d %H:%M:%S",
-    level=logging.INFO,
+    level=logging.DEBUG,
 )
 
 
@@ -82,6 +83,7 @@ class Peer:
         # TODO: add more detail docstring
         """Discover the existing peers and deterine the intial role of this node"""
 
+        self.log.debug("Initialize queery for peers...")
         peer_list = sorted(
             self._get_catalog(), key=lambda x: x["lastheardfrom"], reverse=True
         )
@@ -89,6 +91,7 @@ class Peer:
 
         # Peer is the only one in the network, it becomes the leader
         if not peer_list:
+            self.log.debug("No peers found, become leader")
             self.server.set_mode(ServerMode.LEADER)
             self.server.leader_host = self.own_host
             self.server.leader_port = self.own_port
@@ -96,6 +99,7 @@ class Peer:
             return
 
         # Query Peers for leaders address
+        self.log.debug("peer list found starting to iterate")
         for peer_entry in peer_list:
             target_host, target_port, target_peer_ident = (
                 peer_entry["host"],
@@ -155,19 +159,28 @@ class Peer:
         # Queried all Peers, got no response, trigger and election and win.
         else:
             self.log.info(f"Couldn't contact leader.")
+            self.log.debug("callling an election")
             with self.election_cv:
                 self.do_election = True
                 self.election_cv.notify()
 
         # Syncronize with leader.
+        self.log.debug("_bootstrap: syncing with the leader as followerb")
         if self.server.get_mode() == ServerMode.FOLLOWER:
+            self.log.debug("_bootstrap: grabbing client cv")
             with self.client_cv:
+                self.log.debug(f"_bootstrap: {self.client} will wait if not none")
                 while not self.client:
                     self.client_cv.wait()
                 try:
+                    self.log.debug(f"_bootstrap: {self.client} syncing with peeer")
                     calendar, logical_clock = self.client.sync()
+                    self.log.debug(f"_bootstrap: {self.client} updating calendar")
                     self.server.update(calendar, logical_clock)
                 except ConnectionError:
+                    self.log.debug(
+                        f"_bootstrap: failed to sync with leader grabbing election_cv, and client_cv and calling an election"
+                    )
                     with self.election_cv, self.client_cv:
                         self.client = None
                         self.do_election = True
@@ -322,9 +335,11 @@ class Peer:
         while True:
             # 1. Serve a round of requests.
             flags = self.server.serve()
+            self.log.debug(f"_server_thread: " f"flags for server {flags}")
 
             # 2. Check for ELECTION
             if flags & ServerFlags.DO_ELECTION:
+                self.log.debug(f"_server_thread: " f"election called")
                 # In this codepath, the server thread doesn't need to be stopped and restarted because it is internally calling the election.
                 with self.election_cv:
                     self.do_election = True
@@ -332,6 +347,7 @@ class Peer:
 
             # 3. Check for SYNC
             if flags & ServerFlags.DO_SYNC:
+                self.log.debug(f"_server_thread: " f"synced called ")
                 # Sync is a request to the leader, so it could fail, triggering an election.
                 try:
                     with self.client_cv:
@@ -340,16 +356,24 @@ class Peer:
                         calendar, clock = self.client.sync()
                     self.server.update(calendar, clock)
                 except ConnectionError:
+                    self.log.debug(
+                        f"_server_thread: " f"synced failed calling an election"
+                    )
                     with self.election_cv:
                         self.do_election = True
                         self.election_cv.notify()
 
             if flags & ServerFlags.NEW_LEADER:
+                self.log.debug(f"_server_thread: " f"elect new leader")
                 leader_host, leader_port = (
                     self.server.leader_host,
                     self.server.leader_port,
                 )
                 try:
+                    self.log.debug(
+                        f"_server_thread: "
+                        f"setting new leader endpoint to {self.server.leader_host}:{self.server.leader_port}"
+                    )
                     with self.client_cv:
                         self.client = Client(
                             self.peer_ident,
@@ -364,6 +388,10 @@ class Peer:
                     self.server.update(events, clock)
                     self.log.info(f"New leader ")
                 except ConnectionError:
+                    self.log.debug(
+                        f"_server_thread: "
+                        f" new leader endpoint failed, calling election"
+                    )
                     with self.election_cv:
                         self.do_election = True
                         self.election_cv.notify()

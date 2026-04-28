@@ -276,7 +276,7 @@ class Application:
                 location or None,
                 (
                     Repeats(repeats_every, repeats_starting, repeats_until)
-                    if is_repeating
+                    if is_repeating in {"y", "yes"}
                     else None
                 ),
             )
