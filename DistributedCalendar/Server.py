@@ -142,7 +142,7 @@ class Server:
         """Poll all client connections for incoming requests and serve them. Returns after one round of socket events has been handled."""
         with self.calendar_lock:
             server_flags = 0
-            for key, mask in self.sock_selector.select(timeout=0.001):
+            for key, mask in self.sock_selector.select(timeout=3):
                 callback = key.data
                 server_flags |= callback(key.fileobj)
         return server_flags
@@ -151,7 +151,7 @@ class Server:
     def _accept(self, servsock: Socket) -> int:
         """Socket selector callback that handles an incoming connection on the server socket."""
         clientsock, addr = servsock.accept()
-        self.log.info(f"Accepted {clientsock} from {addr}.")
+        self.log.info(f"Accepted connection from {addr}.")
         clientsock.settimeout(self.CLIENT_SOCK_TIMEOUT)
         self.sock_selector.register(clientsock, selectors.EVENT_READ, self._handle_rpc)
         return 0
@@ -230,6 +230,8 @@ class Server:
                 raise ValueError("Timeout exceeded on call to recv.")
             except socket.error:
                 raise ValueError("Connection forcibly closed by client.")
+            if not data:
+                raise ValueError("Connection gracefully closed by client.")
             header += data
 
         delim_idx = header.index(b"\n")
@@ -246,6 +248,8 @@ class Server:
                 raise ValueError("Timeout exceeded on call to recv.")
             except socket.error:
                 raise ValueError("Connection forcibly closed by client.")
+            if not data:
+                raise ValueError("Connection gracefully closed by client.")
             read_amt += len(data)
             buffer.append(data)
 
@@ -274,6 +278,7 @@ class Server:
                 if message.get("calendar_ident") != self.calendar_ident:
                     return 0
                 clock = message.get("logical_clock", 0)
+                self.log.info(f"Received broadcast from {addr} with clock: {clock}")
                 return (
                     ServerFlags.DO_SYNC
                     if clock > self.persistence.get_logical_clock()
@@ -297,6 +302,9 @@ class Server:
             )
         except OSError:
             self.log.warn("Failed to broadcast clock.")
+        self.log.info(
+            f"Broadcasting current clock: {self.persistence.get_logical_clock()}"
+        )
 
     def _close_socket(self, sock: Socket) -> None:
         """Close file descriptor socket gracefully"""

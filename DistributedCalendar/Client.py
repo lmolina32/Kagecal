@@ -41,7 +41,6 @@ class Client:
         self.own_port: int = own_port
 
         self.log = logging.getLogger(__name__)
-        self.log.setLevel(logging.DEBUG)
 
         self.socket: Optional[socket.socket] = None
         self._create_socket()
@@ -222,7 +221,7 @@ class Client:
             self.socket.settimeout(self.SOCKET_TIMEOUT)
             try:
                 self.socket.connect((self.target_host, self.target_port))
-                self.log.info(f"Connected to {self.target_host}:{self.target_port}")
+                self.log.debug(f"Connected to {self.target_host}:{self.target_port}")
                 return
             except Exception as e:
                 self.log.info(f"[RETRY]: Reconnection attempt in {backoff} seconds")
@@ -238,7 +237,7 @@ class Client:
 
     def _socket_close(self) -> None:
         """Close connection established"""
-        self.log.info(
+        self.log.debug(
             f"Shutting down connection to {self.target_host} {self.target_port}"
         )
         if self.socket is not None:

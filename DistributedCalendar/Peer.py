@@ -106,8 +106,8 @@ class Peer:
             if target_peer_ident == self.peer_ident:
                 continue
 
-            self.log.debug(
-                f"Attempting connection to {target_peer_ident} at {target_host}:{target_port}"
+            self.log.info(
+                f"Attempting connection to {target_peer_ident} at {target_host}: {target_port}"
             )
 
             # Attempt to make connection, if succesful update leaders host & port, then set peer to follower
@@ -121,8 +121,9 @@ class Peer:
                 )
                 # TODO: check if this is the current output of who is leader
                 leader_host, leader_port = client.who_is_leader()
-                self.server.set_mode(ServerMode.FOLLOWER)
-
+                self.log.info(
+                    f" {target_peer_ident} says leader is at {target_host} {target_port}"
+                )
                 try:
                     with self.client_cv:
                         self.client = Client(
@@ -137,11 +138,13 @@ class Peer:
                         self.client = None
                     continue
 
-                self.server.leader_host = leader_host
-                self.server.leader_port = leader_port
+                with self.server.calendar_lock:
+                    self.server.leader_host = leader_host
+                    self.server.leader_port = leader_port
 
+                self.server.set_mode(ServerMode.FOLLOWER)
                 self.log.info(
-                    f"Leader found at {self.server.leader_host}:{self.server.leader_port}"
+                    f"Connected to leader {self.server.leader_host} {self.server.leader_port}."
                 )
                 break
             except ConnectionError:
@@ -316,7 +319,6 @@ class Peer:
 
     def _server_thread(self):
         """Target for the thread created by start_server."""
-        self.log.info("[ Server ] Thread started.")
         while True:
             # 1. Serve a round of requests.
             flags = self.server.serve()
@@ -368,7 +370,7 @@ class Peer:
 
     def call_election(self):
         """Initiates (or continues) the leader election protocol. A new client to the new leader is created."""
-        self.log.info("Starting election...")
+        self.log.info(f"Starting election. PID: {self.pid}")
         with self.client_cv:
             self.client = None
 
@@ -395,8 +397,14 @@ class Peer:
                 self.own_host,
                 self.own_port,
             )
+            self.log.info(
+                f"Sending ELECT to {entry["peer_ident"]} with PID {entry["PID"]} at {entry["host"]} {entry["port"]}."
+            )
             if client.call_election():
                 # a. If OK received, wait for COORDINATE message on server forever. (In the event all peers die at this point and never recover, the application will have to be restarted by the user.)
+                self.log.info(
+                    f"{entry["peer_ident"]} at {entry["host"]} {entry["port"]} responded with OK."
+                )
                 self.server.set_coordinate(True)
                 with self.client_cv:
                     while not self.client:
@@ -440,7 +448,6 @@ class Peer:
 
     def _election_thread(self):
         """Target for a thread that waits for the server or main threads to signal that election needs to happen."""
-        self.log.info("[ Election ] thread started.")
         while True:
             with self.election_cv:
                 while not self.do_election:
