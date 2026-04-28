@@ -43,7 +43,7 @@ class PersistantCalendar:
         self.NEW_CKPT_PATH = str(data_path / (ckpt_path + ".new"))
         self.TXN_LOG_PATH = str(data_path / txn_log_path)
         self.UPDATE_PATH = str(data_path / update_path)
-        self.NEW_UPDATE_PATH = str(data_path / (update_path + "new"))
+        self.NEW_UPDATE_PATH = str(data_path / (update_path + ".new"))
 
         self._logical_clock: int = 0
         self.txns_logged: int = 0

@@ -16,11 +16,6 @@ from .Calendar import Calendar, Repeats, Event
 type Socket = socket.socket
 
 # TODO: update logging to be from the central invocation not called in every sub module.
-logging.basicConfig(
-    level=logging.INFO,
-    format="[%(levelname)s %(asctime)s %(module)s:%(lineno)d] %(message)s",
-    datefmt="%H:%M:%S",
-)
 
 
 class ServerMode(Enum):
@@ -61,6 +56,7 @@ class Server:
         peer_ident: str,
         ckpt_path: str,
         txn_path: str,
+        update_path: str,
         leader_host: str,
         leader_port: int,
     ):
@@ -68,7 +64,7 @@ class Server:
         self.log = logging.getLogger(__name__)
 
         # Set up calednar and its lock
-        self.persistence = PersistantCalendar(ckpt_path, txn_path)
+        self.persistence = PersistantCalendar(ckpt_path, txn_path, update_path)
         self.calendar_lock = threading.Lock()
 
         # Init server state

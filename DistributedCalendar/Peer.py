@@ -15,12 +15,11 @@ from .Client import Client
 from .PersistantCalendar import PersistantCalendar
 from .Calendar import Repeats, Event
 
-logging.basicConfig(level=logging.DEBUG)
 log_format = "[%(levelname)s %(asctime)s %(module)s:%(lineno)d] %(message)s"
 logging.basicConfig(
     format=log_format,
     datefmt="%Y-%m-%d %H:%M:%S",
-    level=logging.DEBUG,
+    level=logging.INFO,
 )
 
 
@@ -57,6 +56,7 @@ class Peer:
 
         ckpt: str = f"calendar_{self.calendar_ident}_{self.peer_ident}.ckpt"
         txn: str = f"calendar_{self.calendar_ident}_{self.peer_ident}.txn"
+        update: str = f"calendar_{self.calendar_ident}_{self.peer_ident}.update"
 
         time.sleep(time.time() % random.randint(1, 5))
 
@@ -65,6 +65,7 @@ class Peer:
             peer_ident=self.peer_ident,
             ckpt_path=ckpt,
             txn_path=txn,
+            update_path=update,
             leader_host="",
             leader_port=0,
         )
