@@ -5,6 +5,7 @@ import time
 import socket
 import pickle
 import logging
+import random
 from datetime import datetime, timezone, timedelta
 from typing import Self, Optional
 
@@ -218,8 +219,8 @@ class Client:
                 self.log.debug(f"Connected to {self.target_host}:{self.target_port}")
                 return
             except Exception as e:
-                self.log.info(f"[RETRY]: Reconnection attempt in {backoff} seconds")
-                time.sleep(backoff)
+                self.log.debug(f"[RETRY]: Reconnection attempt in {backoff} seconds")
+                time.sleep(backoff + (random.randint(0, 1000) / 1000))
                 backoff = min(backoff * 2, self.MAX_BACKOFF)
                 try:
                     self._socket_close()

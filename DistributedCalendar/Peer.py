@@ -85,9 +85,11 @@ class Peer:
         """Discover the existing peers and deterine the intial role of this node"""
 
         self.log.debug("Initialize queery for peers...")
-        peer_list = sorted(
-            self._get_catalog(), key=lambda x: x["lastheardfrom"], reverse=True
-        )
+        # peer_list = sorted(
+        #     self._get_catalog(), key=lambda x: x["lastheardfrom"], reverse=True
+        # )
+        peer_list = self._get_catalog()
+        random.shuffle(peer_list)
         self.log.debug(f"{self.peer_ident} found {len(peer_list)} peers")
 
         # Peer is the only one in the network, it becomes the leader
