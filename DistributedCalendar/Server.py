@@ -263,20 +263,27 @@ class Server:
 
     def _handle_broadcast(self, receiver: Socket) -> int:
         """Handles an incoming broadcast from the leader containing its logical clock. If the clock is higher than this peer's clock, inform the peer that we need to sync with the leader."""
-        data, addr = receiver.recvfrom(self.BROADCAST_MAXLEN)
+        data, _ = receiver.recvfrom(self.BROADCAST_MAXLEN)
+
+        try:
+            message = json.loads(data)
+        except json.decoder.JSONDecodeError:
+            return 0
+
+        if (
+            "calendar_ident" not in message
+            or self.calendar_ident != message["calendar_ident"]
+        ):
+            return 0
+
+        addr = (message.get("host", ""), message.get("port", 0))
+
         match addr:
             case (self.host, self.port):
                 # This node is the leader, and the broadcast came from itself.
                 return 0
             case (self.leader_host, self.leader_port):
                 # Broacast came from leader. Check if sync necessary
-                # if addr == self.leaders_address:
-                try:
-                    message = json.loads(data)
-                except json.decoder.JSONDecodeError:
-                    return 0
-                if message.get("calendar_ident") != self.calendar_ident:
-                    return 0
                 clock = message.get("logical_clock", 0)
                 self.log.info(f"Received broadcast from {addr} with clock: {clock}")
                 return (
@@ -294,6 +301,8 @@ class Server:
         message = {
             "calendar_ident": self.calendar_ident,
             "logical_clock": self.persistence.get_logical_clock(),
+            "host": self.host,
+            "port": self.port,
         }
         message_bytes = json.dumps(message).encode("utf-8")
         try:
