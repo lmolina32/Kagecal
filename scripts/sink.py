@@ -3,6 +3,7 @@
 import os
 import sys
 import argparse
+import time
 import threading
 from pathlib import Path
 
@@ -49,11 +50,17 @@ def main() -> None:
     output_path.mkdir(parents=True, exist_ok=True)
 
     # run leader peer
+    # TODO: should this just forever then get killed don't really see no point lol
     peer = Peer(args.calendar_ident, args.peer_ident)
-    peer.startup()
-    # TODO: is this just a file that calls the peer._serve method? 
-    # TODO: figure out how to do performance testing when the peer is fully worked out 
-    peer._serve()
+    while True:
+        pass
+        # print("sleeping for 60 seconds")
+        # time.sleep(60)
+        # with peer.server.calendar_lock:
+        #     events = peer.server.persistence.list_events()
+        #     if events == args.events:
+        #         print(f"The {events} was reached the peer is now shutting down")
+        #         break
 
 
 if __name__ == "__main__":

@@ -63,7 +63,7 @@ def generate_random_events(num_events=None) -> Tuple[List, List]:
             repeats=None,
         )
         events.append(event)
-        ids.append(hash(event))
+        ids.append(event.hash())
 
     return ids, events
 
