@@ -29,7 +29,8 @@ class Application:
             "modify": Command(self._modify, "modify  event        Interactively modify a calendar event with a given id."),
             "show":   Command(self._show,   "show    event        Display details of event with a given id."),
             "dump":   Command(self._dump,   "dump    event file   Write an event with a given id to a file."),
-            "switch": Command(self._create, "switch  calendar     Switch the currently active calendar."),
+            "switch": Command(self._switch, "switch  calendar     Switch the currently active calendar."),
+            "clear":  Command(self._clear,  "clear                Clear the terminal."),
         }
         # fmt: on
 
@@ -60,8 +61,12 @@ class Application:
             case "show":        self._show(*args)
             case "dump":        self._dump(*args)
             case "switch":      self._switch(*args)
+            case "clear":      self._clear()
             case _:             print(f"Unknown command: {command}")
         # fmt: on
+
+    def _clear(self) -> None:
+        os.system('cls' if os.name == 'nt' else 'clear')
 
     def _join(self, calendar_name: str):
         """Joins decentralized calendar based on calendar identifier. This function request user input for peer identifier in order to know who is joining the netwrok"""
