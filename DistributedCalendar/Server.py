@@ -49,7 +49,7 @@ class Server:
     BROADCAST_PORT = 9375
     BROADCAST_MAXLEN = 1 << 10
     MAX_CONCURRENCY = 100
-    SOCK_SELECT_TIMEOUT = .1 # Seconds
+    SOCK_SELECT_TIMEOUT = 0.01  # Seconds
 
     def __init__(
         self,
@@ -139,7 +139,9 @@ class Server:
         """Poll all client connections for incoming requests and serve them. Returns after one round of socket events has been handled."""
         with self.calendar_lock:
             server_flags = 0
-            for key, mask in self.sock_selector.select(timeout=self.SOCK_SELECT_TIMEOUT):
+            for key, mask in self.sock_selector.select(
+                timeout=self.SOCK_SELECT_TIMEOUT
+            ):
                 callback = key.data
                 server_flags |= callback(key.fileobj)
         return server_flags

@@ -58,8 +58,6 @@ class Peer:
         txn: str = f"calendar_{self.calendar_ident}_{self.peer_ident}.txn"
         update: str = f"calendar_{self.calendar_ident}_{self.peer_ident}.update"
 
-        time.sleep(time.time() % random.randint(1, 5))
-
         self.server: Server = Server(
             calendar_ident=self.calendar_ident,
             peer_ident=self.peer_ident,
