@@ -5,7 +5,6 @@ import sys
 import json
 import time
 import argparse
-import threading
 import statistics
 from pathlib import Path
 from multiprocessing import Pool

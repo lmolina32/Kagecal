@@ -2,9 +2,9 @@
 
 import os
 import sys
-import argparse
 import time
-import threading
+import json
+import argparse
 from pathlib import Path
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -40,6 +40,15 @@ def parse_args() -> argparse.Namespace:
         type=str,
         help="peer identifier for testin",
     )
+    parser.add_argument(
+        "--test",
+        default="throughput",
+        type=str,
+        help="options are (latency|throughput)",
+    )
+    parser.add_argument(
+        "--peers", default=1, type=int, help="amount of peers sending data"
+    )
 
     return parser.parse_args()
 
@@ -52,15 +61,18 @@ def main() -> None:
     # run leader peer
     # TODO: should this just forever then get killed don't really see no point lol
     peer = Peer(args.calendar_ident, args.peer_ident)
-    while True:
-        pass
-        # print("sleeping for 60 seconds")
-        # time.sleep(60)
-        # with peer.server.calendar_lock:
-        #     events = peer.server.persistence.list_events()
-        #     if events == args.events:
-        #         print(f"The {events} was reached the peer is now shutting down")
-        #         break
+    start = time.perf_counter()
+    try:
+        while True:
+            pass
+    except KeyboardInterrupt:
+        end = time.perf_counter() - start
+        if args.test == "throughput":
+            output = (
+                output_path / f"{args.peer_ident}_throughput_{args.peers}_results.json"
+            )
+            results = {"peers": args.peers, "time": args.events / end}
+            output.write_text(json.dumps(results, indent=4))
 
 
 if __name__ == "__main__":
