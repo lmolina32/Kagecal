@@ -6,8 +6,8 @@ keep those replicas consistent, there is no central server that owns the data.
 Peers elect a leader to serialize writes, replicate state to followers, and
 automatically recover and re-elect when the leader disappears.
 
-**Team**: Sam Neisewander, Leonardo Molina
-**Course**: [CSE 40771 - Distributed Systems](https://dthain.github.io/distsys-sp26/), Spring 2026
+ **Team**: Sam Neisewander, Leonardo Molina
+ **Course**: [CSE 40771 - Distributed Systems](https://dthain.github.io/distsys-sp26/), Spring 2026
 
 ## Architecture
 
