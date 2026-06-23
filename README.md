@@ -9,29 +9,6 @@ automatically recover and re-elect when the leader disappears.
 **Team**: Sam Neisewander, Leonardo Molina
 **Course**: [CSE 40771 - Distributed Systems](https://dthain.github.io/distsys-sp26/), Spring 2026
 
-## Features
-
-- **Decentralized replication** — each peer holds a complete copy of the
-  calendar; any peer can serve reads and forward writes.
-- **Leader-based writes** — a single elected leader serializes `create`,
-  `modify`, and `delete` operations and replicates them to followers.
-- **Automatic leader election** — a Bully-style election (highest PID wins,
-  newest heartbeat as a tiebreaker) runs whenever the leader becomes
-  unreachable, so the calendar keeps accepting writes through failures.
-- **Peer discovery** — peers find each other through the Notre Dame catalog
-  server (`catalog.cse.nd.edu:9097`), registering under the `kagecal` project so
-  multiple calendars can coexist.
-- **Crash recovery & durability** — a write-ahead transaction log plus periodic
-  checkpoints (with atomic renames and `fsync`) let a peer rebuild its state
-  after a crash and replay only what it missed.
-- **State synchronization** — followers track a logical clock advertised by the
-  leader over UDP broadcast and pull a full state update whenever they fall
-  behind.
-- **Recurring events** — events can repeat on chosen days of the week over a
-  start/end window.
-- **Interactive shell** — a small REPL (`kagecal>`) for joining calendars and
-  managing events, with import/export of individual events to disk.
-
 ## Architecture
 
 | Component | Responsibility |
