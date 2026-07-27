@@ -85,7 +85,7 @@ The test harness uses `pytest` and lives in `tests/`. Configuration is in
 the project root with no extra flags.
 
 ```bash
-pip install -r requirements.txt -r dev-requirements.txt   # one-time setup
+pip install -r requirements.txt   # one-time setup
 python -m pytest
 ```
 
