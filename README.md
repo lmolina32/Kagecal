@@ -24,63 +24,6 @@ sync by comparing the leader's broadcast logical clock against their own and
 pulling a full update when needed. When the leader stops responding, any peer
 that notices triggers an election to choose a new one.
 
-### Cluster topology
-
-Peers discover one another through the ND catalog, route writes to the elected
-leader over TCP, and learn when to re-sync from the leader's UDP clock
-broadcasts.
-
-```mermaid
-flowchart TB
-    catalog[("ND Catalog Server<br/>catalog.cse.nd.edu:9097<br/>project = kagecal")]
-
-    subgraph cluster["Calendar cluster (one replica per peer)"]
-        leader["Peer (LEADER)<br/>serializes writes<br/>broadcasts logical clock"]
-        f1["Peer (FOLLOWER)"]
-        f2["Peer (FOLLOWER)"]
-    end
-
-    leader -. "register / heartbeat" .-> catalog
-    f1 -. "register / heartbeat" .-> catalog
-    f2 -. "register / heartbeat" .-> catalog
-    catalog -. "discover peers" .-> f1
-
-    f1 -- "create / modify / delete (TCP RPC)" --> leader
-    f2 -- "create / modify / delete (TCP RPC)" --> leader
-    leader == "logical-clock broadcast (UDP)" ==> f1
-    leader == "logical-clock broadcast (UDP)" ==> f2
-    f1 -- "sync: pull full state when behind" --> leader
-    f2 -- "sync: pull full state when behind" --> leader
-
-    f1 <-. "election: coordinate / OK (Bully)" .-> f2
-```
-
-### Peer internals
-
-Each peer is a single process that runs a server thread and an election thread
-over a durable, checkpointed calendar.
-
-```mermaid
-flowchart TD
-    subgraph peer["Peer process"]
-        peerc["Peer<br/>discovery · bootstrap · election driver"]
-        server["Server<br/>RPC dispatch · LEADER/FOLLOWER · UDP broadcast"]
-        client["Client<br/>outbound RPC stub · retries + backoff"]
-        persist["PersistantCalendar<br/>txn log · checkpoints · atomic update"]
-        cal["Calendar<br/>in-memory events · Event / Repeats / Day"]
-    end
-
-    disk[("Durable state<br/>data/*.ckpt · *.txns · *.update")]
-
-    peerc -->|spawns| server
-    peerc -->|spawns| client
-    server --> persist
-    persist --> cal
-    persist -->|fsync + atomic rename| disk
-    disk -->|restore / replay on startup| persist
-    client -->|RPC to other peers| server
-```
-
 ## Repository Structure
 
 ```bash
@@ -137,8 +80,13 @@ kagecal> help                 # List commands (CTRL-D to exit)
 
 ## Testing
 
+The test harness uses `pytest` and lives in `tests/`. Configuration is in
+`pyproject.toml` (test paths, import paths, and markers), so the suite runs from
+the project root with no extra flags.
+
 ```bash
-pytest
+pip install -r requirements.txt -r dev-requirements.txt   # one-time setup
+python -m pytest
 ```
 
 ## Benchmarking
